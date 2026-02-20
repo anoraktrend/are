@@ -1,16 +1,16 @@
-# Maintainer: Your Name <lucyrandall@helltop.net>
-pkgname=aee-rust
+# Maintainer: Lucy Randall <lucybrown@vivaldi.net>
+pkgname=are
 pkgver=2.2.22.r25.c77b92a
 pkgrel=1
-pkgdesc="Another Easy Editor - a simple, easy to use terminal-based screen oriented editor"
+pkgdesc="Another Rust Editor - A port of the aee terminal-based text editor to Rust"
 arch=('x86_64' 'i686' 'aarch64')
 url="https://helltop.net/projects"
 license=('custom:Artistic')
 depends=('ncurses')
 makedepends=('git' 'cargo')
-provides=('aee')
-conflicts=('aee')
-source=("git+https://github.com/anoraktrend/aee.git")
+provides=('are')
+conflicts=('are')
+source=("git+https://github.com/anoraktrend/are.git")
 sha256sums=('SKIP')
 
 pkgver() {

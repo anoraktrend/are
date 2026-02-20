@@ -1,5 +1,5 @@
 [package]
-name = "aee"
+name = "are"
 version = "1.0.0"
 edition = "2021"
 description = "Another Rust Editor - A port of the aee terminal-based text editor to Rust"
