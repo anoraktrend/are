@@ -24,7 +24,7 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 Clone the repository and build the project:
 
 ```bash
-git clone https://github.com/lucy/aee.git
+git clone https://github.com/lucy/are.git
 cd aee
 cargo build --release
 ```
