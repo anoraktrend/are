@@ -100,37 +100,7 @@ pub fn print_at(x: u16, y: u16, text: &str) -> Result<(), Box<dyn std::error::Er
     Ok(())
 }
 
-/// Print a syntax-highlighted line at (x, y).
-/// Each span is (text_slice, token_kind) from the highlighter.
-pub fn print_highlighted(
-    x: u16,
-    y: u16,
-    spans: &[(&str, TokenKind)],
-) -> Result<(), Box<dyn std::error::Error>> {
-    let mut out = stdout();
-    execute!(out, cursor::MoveTo(x, y))?;
-    for (text, kind) in spans {
-        let color = token_color(kind);
-        execute!(out, SetForegroundColor(color), style::Print(text))?;
-    }
-    execute!(out, ResetColor)?;
-    out.flush()?;
-    Ok(())
-}
 
-/// Print a syntax-highlighted line from owned spans (e.g. produced by the
-/// LSP semantic-token highlighter which returns `Vec<(String, TokenKind)>`).
-pub fn print_highlighted_owned(
-    x: u16,
-    y: u16,
-    spans: &[(String, TokenKind)],
-) -> Result<(), Box<dyn std::error::Error>> {
-    let borrowed: Vec<(&str, TokenKind)> = spans
-        .iter()
-        .map(|(s, k)| (s.as_str(), k.clone()))
-        .collect();
-    print_highlighted(x, y, &borrowed)
-}
 
 /// Print plain text at position, with a marked range inverted
 pub fn print_at_marked(x: u16, y: u16, text: &str, mark: Option<(usize, usize)>) -> Result<(), Box<dyn std::error::Error>> {
