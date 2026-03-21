@@ -3,7 +3,7 @@
 use crossterm::{
     terminal::{self, ClearType},
     execute,
-    style::{self, Color, SetForegroundColor, ResetColor},
+    style::{self, Color, SetForegroundColor, ResetColor, SetAttribute, Attribute},
     cursor,
     event::{self, Event, KeyEvent},
 };
@@ -130,6 +130,82 @@ pub fn print_highlighted_owned(
         .map(|(s, k)| (s.as_str(), k.clone()))
         .collect();
     print_highlighted(x, y, &borrowed)
+}
+
+/// Print plain text at position, with a marked range inverted
+pub fn print_at_marked(x: u16, y: u16, text: &str, mark: Option<(usize, usize)>) -> Result<(), Box<dyn std::error::Error>> {
+    let mut out = stdout();
+    execute!(out, cursor::MoveTo(x, y))?;
+    if let Some((start, end)) = mark {
+        let s = start.min(text.len());
+        let e = end.min(text.len());
+        if s > 0 {
+            execute!(out, style::Print(&text[..s]))?;
+        }
+        if e > s {
+            execute!(out, SetAttribute(Attribute::Reverse), style::Print(&text[s..e]), SetAttribute(Attribute::Reset))?;
+        }
+        if e < text.len() {
+            execute!(out, style::Print(&text[e..]))?;
+        }
+    } else {
+        execute!(out, style::Print(text))?;
+    }
+    Ok(())
+}
+
+/// Print marked syntax-highlighted line at (x, y)
+pub fn print_highlighted_marked(
+    x: u16,
+    y: u16,
+    spans: &[(&str, TokenKind)],
+    mark: Option<(usize, usize)>
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut out = stdout();
+    execute!(out, cursor::MoveTo(x, y))?;
+    let mut current_offset = 0;
+    
+    // We iterate over the spans, but if they intersect the mark, we toggle Attribute::Reverse.
+    for &(text, ref kind) in spans {
+        let color = token_color(kind);
+        let span_len = text.len();
+        
+        if let Some((start, end)) = mark {
+            let s = start.saturating_sub(current_offset).min(span_len);
+            let e = end.saturating_sub(current_offset).min(span_len);
+            
+            execute!(out, SetForegroundColor(color))?;
+            if s > 0 {
+                execute!(out, style::Print(&text[..s]))?;
+            }
+            if e > s {
+                execute!(out, SetAttribute(Attribute::Reverse), style::Print(&text[s..e]), SetAttribute(Attribute::Reset), SetForegroundColor(color))?;
+            }
+            if e < span_len {
+                execute!(out, style::Print(&text[e..]))?;
+            }
+        } else {
+            execute!(out, SetForegroundColor(color), style::Print(text))?;
+        }
+        current_offset += span_len;
+    }
+    execute!(out, ResetColor)?;
+    out.flush()?;
+    Ok(())
+}
+
+/// Print marked syntax-highlighted line from owned spans
+pub fn print_highlighted_owned_marked(
+    x: u16,
+    y: u16,
+    spans: &[(String, TokenKind)],
+    mark: Option<(usize, usize)>
+) -> Result<(), Box<dyn std::error::Error>> {
+    let borrowed: Vec<(&str, TokenKind)> = spans
+        .iter()
+        .map(|(s, k)| (s.as_str(), k.clone()))
+        .collect();
+    print_highlighted_marked(x, y, &borrowed, mark)
 }
 
 /// Print the status / info bar - plain text without highlight.

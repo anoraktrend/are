@@ -433,12 +433,14 @@ fn split_line_at_cursor(buff: &mut Buffer) {
 pub struct MarkAnchor {
     pub line: Rc<RefCell<TextLine>>,
     pub pos: usize, // 0-based byte offset
+    pub abs_lin: i32,
 }
 
 impl MarkAnchor {
     pub fn from_buffer(buff: &Buffer) -> Option<Self> {
         let line = buff.curr_line.as_ref()?.clone();
         let pos = (buff.position as usize).saturating_sub(1);
-        Some(MarkAnchor { line, pos })
+        let abs_lin = buff.absolute_lin;
+        Some(MarkAnchor { line, pos, abs_lin })
     }
 }

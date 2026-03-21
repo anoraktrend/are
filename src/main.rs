@@ -96,8 +96,8 @@ async fn main() {
             lsp.poll_messages();
         }
 
-        // Draw the screen
-        if let Err(e) = draw_screen(&editor) {
+        // Render screen
+        if let Err(e) = draw_screen(&editor, &mark_anchor) {
             eprintln!("Failed to draw screen: {}", e);
             break;
         }
@@ -616,7 +616,7 @@ fn draw_key_bindings(y: u16, width: u16) -> Result<u16, Box<dyn std::error::Erro
     Ok(current_y)
 }
 
-fn draw_screen(editor: &editor_state::EditorState) -> Result<(), Box<dyn std::error::Error>> {
+fn draw_screen(editor: &editor_state::EditorState, mark_anchor: &Option<crate::mark::MarkAnchor>) -> Result<(), Box<dyn std::error::Error>> {
     ui::clear_screen()?;
 
     let (width, height) = ui::get_terminal_size();
@@ -692,6 +692,37 @@ fn draw_screen(editor: &editor_state::EditorState) -> Result<(), Box<dyn std::er
         // LSP uses 0-based line numbers; our window_top is 1-based.
         let mut lsp_line_idx = (buff.window_top as u32).saturating_sub(1);
         while let Some(line) = current_line {
+            let mut mark_range: Option<(usize, usize)> = None;
+            if editor.mark_text {
+                if let Some(anchor) = mark_anchor {
+                    let a_lin = anchor.abs_lin;
+                    let c_lin = buff.absolute_lin;
+                    let a_pos = anchor.pos;
+                    let c_pos = (buff.position as usize).saturating_sub(1);
+                    
+                    let s_lin = a_lin.min(c_lin);
+                    let e_lin = a_lin.max(c_lin);
+                    
+                    if line_num == s_lin && line_num == e_lin {
+                        mark_range = Some((a_pos.min(c_pos), a_pos.max(c_pos)));
+                    } else if line_num == s_lin {
+                        if a_lin < c_lin {
+                            mark_range = Some((a_pos, usize::MAX));
+                        } else {
+                            mark_range = Some((c_pos, usize::MAX));
+                        }
+                    } else if line_num == e_lin {
+                        if a_lin < c_lin {
+                            mark_range = Some((0, c_pos));
+                        } else {
+                            mark_range = Some((0, a_pos));
+                        }
+                    } else if line_num > s_lin && line_num < e_lin {
+                        mark_range = Some((0, usize::MAX));
+                    }
+                }
+            }
+
             let line_data = line.borrow();
             let raw = &line_data.line;
             // Truncate to terminal width (byte-safe)
@@ -719,9 +750,10 @@ fn draw_screen(editor: &editor_state::EditorState) -> Result<(), Box<dyn std::er
                             line_tokens.into_iter().cloned().collect();
                         let spans =
                             highlighting::highlight_line_lsp(display_text, &owned_tokens, legend);
-                        ui::print_highlighted_owned(0, y, &spans)?;
+                        ui::print_highlighted_owned_marked(0, y, &spans, mark_range)?;
                         y += 1u16;
                         lsp_line_idx += 1;
+                        line_num += 1;
                         if y >= height { break; }
                         current_line = line_data.next_line.clone();
                         continue;
@@ -732,16 +764,17 @@ fn draw_screen(editor: &editor_state::EditorState) -> Result<(), Box<dyn std::er
                     let (spans, new_state) =
                         highlighting::highlight_line_with_state(display_text, lang, in_block_comment);
                     in_block_comment = new_state;
-                    ui::print_highlighted(0, y, &spans)?;
+                    ui::print_highlighted_marked(0, y, &spans, mark_range)?;
                 } else {
-                    ui::print_at(0, y, display_text)?;
+                    ui::print_at_marked(0, y, display_text, mark_range)?;
                 }
             } else {
-                ui::print_at(0, y, display_text)?;
+                ui::print_at_marked(0, y, display_text, mark_range)?;
             }
 
             y += 1u16;
             lsp_line_idx += 1;
+            line_num += 1;
             if y >= height { break; }
             current_line = line_data.next_line.clone();
         }
