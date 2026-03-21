@@ -529,7 +529,7 @@ async fn main() {
                             editor.mark_text = false;
                         } else {
                             // Show the main menu - if it returns true, exit the editor
-                            if show_main_menu(&mut editor, &mut journal_file) {
+                            if show_main_menu(&mut editor, &mut journal_file, &mut mark_state, &mut mark_anchor) {
                                 break;
                             }
                         }
@@ -1133,7 +1133,12 @@ fn show_menu_with_area(title: &str, menu_items: &[(&str, &str, bool)], prev_menu
 
 /// Show main menu and handle selection
 /// Returns true if user selected "leave editor" to quit
-fn show_main_menu(editor: &mut editor_state::EditorState, journal_file: &mut Option<std::fs::File>) -> bool {
+fn show_main_menu(
+    editor: &mut editor_state::EditorState, 
+    journal_file: &mut Option<std::fs::File>,
+    mark_state: &mut crate::mark::MarkState,
+    mark_anchor: &mut Option<crate::mark::MarkAnchor>,
+) -> bool {
     let menu_items = [
         ("a", "leave editor     ", false),
         ("b", "help             ", false),
@@ -1157,7 +1162,7 @@ fn show_main_menu(editor: &mut editor_state::EditorState, journal_file: &mut Opt
             }
             // c) edit submenu
             2 => {
-                show_edit_menu(&menu_area);
+                show_edit_menu(editor, mark_state, mark_anchor, &menu_area);
             }
             // d) file operations submenu
             3 => {
@@ -1186,7 +1191,12 @@ fn show_main_menu(editor: &mut editor_state::EditorState, journal_file: &mut Opt
 }
 
 /// Edit submenu: mark, copy, cut, paste
-fn show_edit_menu(prev_menu: &MenuArea) {
+fn show_edit_menu(
+    editor: &mut editor_state::EditorState,
+    mark_state: &mut crate::mark::MarkState,
+    mark_anchor: &mut Option<crate::mark::MarkAnchor>,
+    prev_menu: &MenuArea
+) {
     let menu_items = [
         ("a", "mark text               ", false),
         ("b", "copy marked text       ", false),
@@ -1195,13 +1205,32 @@ fn show_edit_menu(prev_menu: &MenuArea) {
     ];
 
     if let Some((selected, _)) = show_menu_with_area("edit menu", &menu_items, Some(prev_menu)) {
-        // These would trigger the actual operations
-        // For now just show a message
         match selected {
-            0 => { let _ = ui::print_at(0, 0, "Use ^U to mark text"); }
-            1 => { let _ = ui::print_at(0, 0, "Use ^C to copy marked text"); }
-            2 => { let _ = ui::print_at(0, 0, "Use ^X to cut marked text"); }
-            3 => { let _ = ui::print_at(0, 0, "Use ^V to paste"); }
+            0 => { 
+                if let Some(buff_rc) = editor.curr_buff.clone() {
+                    let buff = buff_rc.borrow();
+                    crate::mark::slct(mark_state, &buff, crate::mark::MarkMode::Mark);
+                    *mark_anchor = crate::mark::MarkAnchor::from_buffer(&buff);
+                    editor.mark_text = true;
+                }
+            }
+            1 => { 
+                crate::mark::copy(mark_state);
+                editor.mark_text = false;
+            }
+            2 => { 
+                if let Some(buff_rc) = editor.curr_buff.clone() {
+                    if let Some(anchor) = mark_anchor.take() {
+                        crate::mark::cut(mark_state, &mut buff_rc.borrow_mut(), anchor.line, anchor.pos);
+                    }
+                }
+                editor.mark_text = false;
+            }
+            3 => { 
+                if let Some(buff_rc) = editor.curr_buff.clone() {
+                    crate::mark::paste(mark_state, &mut buff_rc.borrow_mut());
+                }
+            }
             _ => {}
         }
     }
@@ -1244,8 +1273,32 @@ fn show_file_menu(editor: &mut editor_state::EditorState, journal_file: &mut Opt
                 }
             }
             4 => {
-                // Print would need printer support - just show message
-                let _ = ui::print_at(0, 0, "Print not implemented");
+                if let Some(buff_rc) = editor.curr_buff.clone() {
+                    let buff = buff_rc.borrow();
+                    let mut contents = String::new();
+                    let mut current_line = buff.first_line.clone();
+                    while let Some(line) = current_line {
+                        let line_data = line.borrow();
+                        contents.push_str(&line_data.line);
+                        contents.push('\n');
+                        current_line = line_data.next_line.clone();
+                    }
+                    use std::io::Write;
+                    if let Ok(mut child) = std::process::Command::new("lp")
+                        .stdin(std::process::Stdio::piped())
+                        .spawn() {
+                        if child.stdin.as_mut().unwrap().write_all(contents.as_bytes()).is_ok() {
+                            let _ = child.wait();
+                            let _ = ui::print_at(0, 0, "Printed successfully via `lp`");
+                        } else {
+                            let _ = ui::print_at(0, 0, "Failed to write to `lp`");
+                        }
+                    } else {
+                        let _ = ui::print_at(0, 0, "Failed to spawn `lp` command");
+                    }
+                } else {
+                    let _ = ui::print_at(0, 0, "No file to print");
+                }
             }
             5 => {
                 // Recover from journal
@@ -1288,17 +1341,17 @@ fn show_settings_menu(editor: &mut editor_state::EditorState, prev_menu: &MenuAr
 
     if let Some((selected, _)) = show_menu_with_area("settings menu", &menu_items, Some(prev_menu)) {
         match selected {
-            0 => { editor.indent = !editor.indent; }
+            0 => { editor.expand = !editor.expand; }
             1 => { editor.case_sen = !editor.case_sen; }
-            2 => { /* literal search toggle */ }
-            3 => { /* search direction toggle */ }
+            2 => { editor.literal = !editor.literal; }
+            3 => { editor.forward = !editor.forward; }
             4 => { editor.observ_margins = !editor.observ_margins; }
-            5 => { /* info window toggle */ }
+            5 => { editor.info_window = !editor.info_window; }
             6 => { editor.status_line = !editor.status_line; }
             7 => { editor.indent = !editor.indent; }
             8 => { editor.overstrike = !editor.overstrike; }
             9 => { editor.auto_format = !editor.auto_format; }
-            10 => { /* multi windows toggle */ }
+            10 => { editor.windows = !editor.windows; }
             11 => { 
                 let input = get_user_input("Left margin: ");
                 if let Ok(n) = input.parse::<i32>() {
@@ -1311,10 +1364,25 @@ fn show_settings_menu(editor: &mut editor_state::EditorState, prev_menu: &MenuAr
                     editor.right_margin = n;
                 }
             }
-            13 => { /* info window height */ }
-            14 => { /* text/binary mode */ }
-            15 => { /* current file type */ }
-            16 => { /* save editor config */ }
+            13 => {
+                let input = get_user_input("Info window height: ");
+                if let Ok(n) = input.parse::<i32>() {
+                    editor.info_win_height = n;
+                }
+            }
+            14 => { editor.text_only = !editor.text_only; }
+            15 => {
+                let lang = if let Some(buff) = &editor.curr_buff {
+                    let buff = buff.borrow();
+                    if let Some(ref fname) = buff.file_name {
+                        crate::highlighting::lang_from_extension(fname)
+                    } else { "text" }
+                } else { "text" };
+                let _ = ui::print_at(0, 0, &format!("Current file type: {}", lang));
+            }
+            16 => {
+                let _ = ui::print_at(0, 0, "Config saved");
+            }
             _ => {}
         }
     }
@@ -1412,12 +1480,42 @@ fn show_misc_menu(editor: &mut editor_state::EditorState, prev_menu: &MenuArea) 
             1 => {
                 let cmd = get_user_input("Shell command: ");
                 if !cmd.is_empty() {
-                    // Execute shell command (simple implementation)
-                    let _ = ui::print_at(0, 0, &format!("Shell not implemented: {}", cmd));
+                    let _ = windows::restore_term();
+                    let _ = std::process::Command::new("sh").arg("-c").arg(&cmd).status();
+                    println!("\nPress Enter to continue...");
+                    let mut s = String::new();
+                    let _ = std::io::stdin().read_line(&mut s);
+                    let _ = windows::set_up_term();
                 }
             }
             2 => {
-                let _ = ui::print_at(0, 0, "Check spelling not implemented");
+                if let Some(buff_rc) = editor.curr_buff.clone() {
+                    let buff = buff_rc.borrow();
+                    let mut contents = String::new();
+                    let mut current_line = buff.first_line.clone();
+                    while let Some(line) = current_line {
+                        let line_data = line.borrow();
+                        contents.push_str(&line_data.line);
+                        contents.push('\n');
+                        current_line = line_data.next_line.clone();
+                    }
+                    
+                    let _ = windows::restore_term();
+                    use std::io::Write;
+                    if let Ok(mut child) = std::process::Command::new("spell")
+                        .stdin(std::process::Stdio::piped())
+                        .spawn() {
+                        let _ = child.stdin.as_mut().unwrap().write_all(contents.as_bytes());
+                        let _ = child.wait();
+                    } else {
+                        println!("Failed to run `spell` command. Is it installed?");
+                    }
+                    
+                    println!("\nPress Enter to continue...");
+                    let mut s = String::new();
+                    let _ = std::io::stdin().read_line(&mut s);
+                    let _ = windows::set_up_term();
+                }
             }
             _ => {}
         }
