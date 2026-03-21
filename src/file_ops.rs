@@ -279,8 +279,8 @@ pub fn show_file_browser(start_dir: &str) -> Option<String> {
 
     let mut stdout = stdout();
 
-    // Enter alternate screen / raw mode so we don't corrupt the editor view.
-    let _ = terminal::enable_raw_mode();
+    // Enter alternate screen so we don't corrupt the editor view.
+    // Raw mode is already active (owned by the main event loop).
     let _ = execute!(stdout, terminal::EnterAlternateScreen, cursor::Hide);
 
     let mut current_dir = fs::canonicalize(start_dir)
@@ -414,9 +414,9 @@ pub fn show_file_browser(start_dir: &str) -> Option<String> {
         }
     };
 
-    // Restore terminal state
+    // Restore terminal state — leave alternate screen, show cursor.
+    // Raw mode remains enabled for the main editor loop.
     let _ = execute!(stdout, terminal::LeaveAlternateScreen, cursor::Show);
-    let _ = terminal::disable_raw_mode();
 
     result
 }
