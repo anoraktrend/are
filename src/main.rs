@@ -141,21 +141,21 @@ async fn main() {
                             "help" => help::help(None),
                             "pwd" => {
                                 let pwd = file_ops::show_pwd();
-                                let _ = ui::print_at(0, 0, &format!("PWD: {}", pwd));
+                                show_message_prompt(&format!("PWD: {}", pwd));
                             }
                             "mkdir" if parts.len() > 1 => {
                                 if let Err(e) = file_ops::create_dir(parts[1]) {
-                                    let _ = ui::print_at(0, 0, &format!("Error: {}", e));
+                                    show_message_prompt(&format!("Error: {}", e));
                                 }
                             }
                             "dirname" if parts.len() > 1 => {
                                 if let Some(dir) = file_ops::ae_dirname(parts[1]) {
-                                    let _ = ui::print_at(0, 0, &format!("Dirname: {}", dir));
+                                    show_message_prompt(&format!("Dirname: {}", dir));
                                 }
                             }
                             "write" if parts.len() > 1 => {
                                 let saved = file_ops::write_file(&mut editor, parts[1]);
-                                let _ = ui::print_at(0, 0, &format!("Write result: {}", saved));
+                                show_message_prompt(&format!("Write result: {}", saved));
                             }
                             "format" => {
                                 if let Some(buff_rc) = editor.curr_buff.clone() {
@@ -169,7 +169,7 @@ async fn main() {
                             }
                             "indent" => {
                                 editor.indent = !editor.indent;
-                                let _ = ui::print_at(0, 0, &format!("Indent: {}", editor.indent));
+                                show_message_prompt(&format!("Indent: {}", editor.indent));
                             }
                             "margin" if parts.len() > 2 => {
                                 if let (Ok(lm), Ok(rm)) = (parts[1].parse::<i32>(), parts[2].parse::<i32>()) {
@@ -180,11 +180,11 @@ async fn main() {
                             }
                             "justify" => {
                                 editor.right_justify = !editor.right_justify;
-                                let _ = ui::print_at(0, 0, &format!("Right justify: {}", editor.right_justify));
+                                show_message_prompt(&format!("Right justify: {}", editor.right_justify));
                             }
                             "bufcount" => {
                                 let count = editor.buf_count();
-                                let _ = ui::print_at(0, 0, &format!("Buffer count: {}", count));
+                                show_message_prompt(&format!("Buffer count: {}", count));
                             }
                             "append" => {
                                 // Use Append mark mode
@@ -218,7 +218,9 @@ async fn main() {
                             if let Some(buff_rc) = editor.curr_buff.clone() {
                                 if let Some(result) = search::search_forward(&mut buff_rc.borrow_mut(), &s, editor.case_sen) {
                                     editor.lines_moved = result.lines_moved;
-                                    let _ = ui::print_at(0, 0, &format!("Found at line {}, col {}", result.line_num, result.col));
+                                    show_message_prompt(&format!("Found at line {}, col {}", result.line_num, result.col));
+                                } else {
+                                    show_message_prompt("Not found");
                                 }
                             }
                         }
@@ -983,6 +985,18 @@ fn undo(editor: &mut editor_state::EditorState) {
     }
 }
 
+/// Helper to show a message and wait for user acknowledgment so it doesn't get cleared immediately
+fn show_message_prompt(msg: &str) {
+    let _ = ui::clear_screen();
+    let mut y = 0;
+    for line in msg.lines() {
+        let _ = ui::print_at(0, y, line);
+        y += 1;
+    }
+    let _ = ui::print_at(0, y + 1, "Press any key to continue...");
+    let _ = ui::read_key();
+}
+
 /// Menu position and size info for clearing later
 struct MenuArea {
     start_x: u16,
@@ -1212,11 +1226,13 @@ fn show_edit_menu(
                     crate::mark::slct(mark_state, &buff, crate::mark::MarkMode::Mark);
                     *mark_anchor = crate::mark::MarkAnchor::from_buffer(&buff);
                     editor.mark_text = true;
+                    show_message_prompt("Mark mode activated. Use cursor to select text.");
                 }
             }
             1 => { 
                 crate::mark::copy(mark_state);
                 editor.mark_text = false;
+                show_message_prompt("Marked text copied.");
             }
             2 => { 
                 if let Some(buff_rc) = editor.curr_buff.clone() {
@@ -1225,11 +1241,13 @@ fn show_edit_menu(
                     }
                 }
                 editor.mark_text = false;
+                show_message_prompt("Marked text cut.");
             }
             3 => { 
                 if let Some(buff_rc) = editor.curr_buff.clone() {
                     crate::mark::paste(mark_state, &mut buff_rc.borrow_mut());
                 }
+                show_message_prompt("Text pasted.");
             }
             _ => {}
         }
@@ -1267,9 +1285,9 @@ fn show_file_menu(editor: &mut editor_state::EditorState, journal_file: &mut Opt
             3 => {
                 // Diff with disk version
                 if let Some(diff) = file_ops::diff_file(editor) {
-                    let _ = ui::print_highlighted_at(0, 0, &diff);
+                    show_message_prompt(&diff);
                 } else {
-                    let _ = ui::print_highlighted_at(0, 0, "No diff (file not saved or no on-disk version)");
+                    show_message_prompt("No diff (file not saved or no on-disk version)");
                 }
             }
             4 => {
@@ -1289,15 +1307,15 @@ fn show_file_menu(editor: &mut editor_state::EditorState, journal_file: &mut Opt
                         .spawn() {
                         if child.stdin.as_mut().unwrap().write_all(contents.as_bytes()).is_ok() {
                             let _ = child.wait();
-                            let _ = ui::print_at(0, 0, "Printed successfully via `lp`");
+                            show_message_prompt("Printed successfully via `lp`");
                         } else {
-                            let _ = ui::print_at(0, 0, "Failed to write to `lp`");
+                            show_message_prompt("Failed to write to `lp`");
                         }
                     } else {
-                        let _ = ui::print_at(0, 0, "Failed to spawn `lp` command");
+                        show_message_prompt("Failed to spawn `lp` command");
                     }
                 } else {
-                    let _ = ui::print_at(0, 0, "No file to print");
+                    show_message_prompt("No file to print");
                 }
             }
             5 => {
@@ -1341,17 +1359,17 @@ fn show_settings_menu(editor: &mut editor_state::EditorState, prev_menu: &MenuAr
 
     if let Some((selected, _)) = show_menu_with_area("settings menu", &menu_items, Some(prev_menu)) {
         match selected {
-            0 => { editor.expand = !editor.expand; }
-            1 => { editor.case_sen = !editor.case_sen; }
-            2 => { editor.literal = !editor.literal; }
-            3 => { editor.forward = !editor.forward; }
-            4 => { editor.observ_margins = !editor.observ_margins; }
-            5 => { editor.info_window = !editor.info_window; }
-            6 => { editor.status_line = !editor.status_line; }
-            7 => { editor.indent = !editor.indent; }
-            8 => { editor.overstrike = !editor.overstrike; }
-            9 => { editor.auto_format = !editor.auto_format; }
-            10 => { editor.windows = !editor.windows; }
+            0 => { editor.expand = !editor.expand; show_message_prompt(&format!("Tabs to spaces: {}", editor.expand)); }
+            1 => { editor.case_sen = !editor.case_sen; show_message_prompt(&format!("Case sensitive search: {}", editor.case_sen)); }
+            2 => { editor.literal = !editor.literal; show_message_prompt(&format!("Literal search: {}", editor.literal)); }
+            3 => { editor.forward = !editor.forward; show_message_prompt(&format!("Search direction: {}", if editor.forward { "forward" } else { "backward" })); }
+            4 => { editor.observ_margins = !editor.observ_margins; show_message_prompt(&format!("Observe margins: {}", editor.observ_margins)); }
+            5 => { editor.info_window = !editor.info_window; show_message_prompt(&format!("Info window: {}", editor.info_window)); }
+            6 => { editor.status_line = !editor.status_line; show_message_prompt(&format!("Status line: {}", editor.status_line)); }
+            7 => { editor.indent = !editor.indent; show_message_prompt(&format!("Auto indent: {}", editor.indent)); }
+            8 => { editor.overstrike = !editor.overstrike; show_message_prompt(&format!("Overstrike mode: {}", editor.overstrike)); }
+            9 => { editor.auto_format = !editor.auto_format; show_message_prompt(&format!("Auto paragraph format: {}", editor.auto_format)); }
+            10 => { editor.windows = !editor.windows; show_message_prompt(&format!("Multi windows: {}", editor.windows)); }
             11 => { 
                 let input = get_user_input("Left margin: ");
                 if let Ok(n) = input.parse::<i32>() {
@@ -1370,7 +1388,7 @@ fn show_settings_menu(editor: &mut editor_state::EditorState, prev_menu: &MenuAr
                     editor.info_win_height = n;
                 }
             }
-            14 => { editor.text_only = !editor.text_only; }
+            14 => { editor.text_only = !editor.text_only; show_message_prompt(&format!("Text/binary mode: {}", if editor.text_only { "text" } else { "binary" })); }
             15 => {
                 let lang = if let Some(buff) = &editor.curr_buff {
                     let buff = buff.borrow();
@@ -1378,10 +1396,10 @@ fn show_settings_menu(editor: &mut editor_state::EditorState, prev_menu: &MenuAr
                         crate::highlighting::lang_from_extension(fname)
                     } else { "text" }
                 } else { "text" };
-                let _ = ui::print_at(0, 0, &format!("Current file type: {}", lang));
+                show_message_prompt(&format!("Current file type: {}", lang));
             }
             16 => {
-                let _ = ui::print_at(0, 0, "Config saved");
+                show_message_prompt("Config saved");
             }
             _ => {}
         }
@@ -1414,9 +1432,9 @@ fn show_search_menu(editor: &mut editor_state::EditorState, prev_menu: &MenuArea
                 if let Some(ref s) = editor.srch_str {
                     if let Some(buff_rc) = editor.curr_buff.clone() {
                         if let Some(result) = search::search_forward(&mut buff_rc.borrow_mut(), s, editor.case_sen) {
-                            let _ = ui::print_at(0, 0, &format!("Found at line {}, col {}", result.line_num, result.col));
+                            show_message_prompt(&format!("Found at line {}, col {}", result.line_num, result.col));
                         } else {
-                            let _ = ui::print_at(0, 0, "Not found");
+                            show_message_prompt("Not found");
                         }
                     }
                 }
@@ -1426,9 +1444,9 @@ fn show_search_menu(editor: &mut editor_state::EditorState, prev_menu: &MenuArea
                 if let Some(ref s) = editor.srch_str {
                     if let Some(buff_rc) = editor.curr_buff.clone() {
                         if let Some(result) = search::search_backward(&mut buff_rc.borrow_mut(), s, editor.case_sen) {
-                            let _ = ui::print_at(0, 0, &format!("Found at line {}, col {}", result.line_num, result.col));
+                            show_message_prompt(&format!("Found at line {}, col {}", result.line_num, result.col));
                         } else {
-                            let _ = ui::print_at(0, 0, "Not found");
+                            show_message_prompt("Not found");
                         }
                     }
                 }
@@ -1440,7 +1458,7 @@ fn show_search_menu(editor: &mut editor_state::EditorState, prev_menu: &MenuArea
                     editor.srch_str = Some(s.clone());
                     if let Some(buff_rc) = editor.curr_buff.clone() {
                         let count = search::replace_all(&mut buff_rc.borrow_mut(), &s, &r, editor.case_sen);
-                        let _ = ui::print_at(0, 0, &format!("Replaced {} occurrences", count));
+                        show_message_prompt(&format!("Replaced {} occurrences", count));
                     }
                 }
             }
@@ -1476,6 +1494,7 @@ fn show_misc_menu(editor: &mut editor_state::EditorState, prev_menu: &MenuArea) 
                         editor.right_justify,
                     );
                 }
+                show_message_prompt("Paragraph formatted.");
             }
             1 => {
                 let cmd = get_user_input("Shell command: ");
