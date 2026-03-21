@@ -208,3 +208,216 @@ pub fn diff_file(state: &EditorState) -> Option<String> {
 pub fn create_dir(path: &str) -> io::Result<()> {
     fs::create_dir_all(path)
 }
+
+// ────────────────────────────────────────────────────────────────────────────
+// Interactive file browser (used by Ctrl+O and the file menu)
+// ────────────────────────────────────────────────────────────────────────────
+
+/// An entry in the directory listing.
+#[derive(Clone)]
+struct BrowserEntry {
+    /// Display name shown in the list (e.g. "src/", "main.rs")
+    display: String,
+    /// Whether this entry is a directory (used to decide whether to descend or return)
+    is_dir: bool,
+    /// Absolute path to the entry
+    path: PathBuf,
+}
+
+/// Read and sort the contents of `dir`: `..` first, then dirs, then files.
+fn read_dir_entries(dir: &Path) -> Vec<BrowserEntry> {
+    let mut dirs: Vec<BrowserEntry> = Vec::new();
+    let mut files: Vec<BrowserEntry> = Vec::new();
+
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let is_dir = path.is_dir();
+            let name = entry.file_name().to_string_lossy().to_string();
+            let display = if is_dir {
+                format!("{}/", name)
+            } else {
+                name
+            };
+            let browser_entry = BrowserEntry { display, is_dir, path };
+            if is_dir {
+                dirs.push(browser_entry);
+            } else {
+                files.push(browser_entry);
+            }
+        }
+    }
+
+    dirs.sort_by(|a, b| a.display.cmp(&b.display));
+    files.sort_by(|a, b| a.display.cmp(&b.display));
+
+    // Prepend ".." unless we are already at the filesystem root
+    let mut result: Vec<BrowserEntry> = Vec::new();
+    if let Some(parent) = dir.parent() {
+        result.push(BrowserEntry {
+            display: "../".to_string(),
+            is_dir: true,
+            path: parent.to_path_buf(),
+        });
+    }
+    result.extend(dirs);
+    result.extend(files);
+    result
+}
+
+/// Draw the file browser, using crossterm directly (no ncurses).
+/// Returns the absolute path of the chosen file, or `None` if the user cancelled.
+pub fn show_file_browser(start_dir: &str) -> Option<String> {
+    use crossterm::{
+        cursor,
+        event::{self, Event, KeyCode, KeyModifiers},
+        execute,
+        style::{Attribute, Print, ResetColor, SetAttribute},
+        terminal::{self, ClearType},
+    };
+    use std::io::stdout;
+
+    let mut stdout = stdout();
+
+    // Enter alternate screen / raw mode so we don't corrupt the editor view.
+    let _ = terminal::enable_raw_mode();
+    let _ = execute!(stdout, terminal::EnterAlternateScreen, cursor::Hide);
+
+    let mut current_dir = fs::canonicalize(start_dir)
+        .unwrap_or_else(|_| PathBuf::from(start_dir));
+    let mut entries: Vec<BrowserEntry> = read_dir_entries(&current_dir);
+    let mut cursor_pos: usize = 0;
+    let mut scroll_offset: usize = 0;
+
+    let result = loop {
+        // --- draw ---
+        let (cols, rows) = terminal::size().unwrap_or((80, 24));
+        let list_rows = rows.saturating_sub(3) as usize; // header + border + status
+
+        let _ = execute!(stdout, terminal::Clear(ClearType::All), cursor::MoveTo(0, 0));
+
+        // Header
+        let header = format!(
+            " File Browser  {}",
+            current_dir.to_string_lossy()
+        );
+        let header_trunc: String = header.chars().take(cols as usize).collect();
+        let _ = execute!(
+            stdout,
+            SetAttribute(Attribute::Reverse),
+            Print(format!("{:<width$}", header_trunc, width = cols as usize)),
+            ResetColor,
+        );
+
+        // File list
+        for (row_idx, entry) in entries
+            .iter()
+            .enumerate()
+            .skip(scroll_offset)
+            .take(list_rows)
+        {
+            let y = (row_idx - scroll_offset + 1) as u16;
+            let _ = execute!(stdout, cursor::MoveTo(0, y));
+
+            // Truncate display name to terminal width
+            let display: String = entry.display.chars().take(cols as usize).collect();
+            let line = format!("{:<width$}", display, width = cols as usize);
+
+            if row_idx == cursor_pos {
+                let _ = execute!(
+                    stdout,
+                    SetAttribute(Attribute::Reverse),
+                    Print(&line),
+                    ResetColor,
+                );
+            } else {
+                let _ = execute!(stdout, Print(&line));
+            }
+        }
+
+        // Status / help bar at the bottom
+        let status = "  ↑/↓ Move  Enter Select  Esc Cancel";
+        let status_trunc: String = status.chars().take(cols as usize).collect();
+        let _ = execute!(
+            stdout,
+            cursor::MoveTo(0, rows.saturating_sub(1)),
+            SetAttribute(Attribute::Reverse),
+            Print(format!("{:<width$}", status_trunc, width = cols as usize)),
+            ResetColor,
+        );
+
+        // --- input ---
+        if let Ok(Event::Key(key)) = event::read() {
+            match key.code {
+                KeyCode::Up => {
+                    if cursor_pos > 0 {
+                        cursor_pos -= 1;
+                        if cursor_pos < scroll_offset {
+                            scroll_offset = cursor_pos;
+                        }
+                    }
+                }
+                KeyCode::Down => {
+                    if cursor_pos + 1 < entries.len() {
+                        cursor_pos += 1;
+                        if cursor_pos >= scroll_offset + list_rows {
+                            scroll_offset = cursor_pos + 1 - list_rows;
+                        }
+                    }
+                }
+                KeyCode::Home => {
+                    cursor_pos = 0;
+                    scroll_offset = 0;
+                }
+                KeyCode::End => {
+                    cursor_pos = entries.len().saturating_sub(1);
+                    if cursor_pos >= list_rows {
+                        scroll_offset = cursor_pos + 1 - list_rows;
+                    }
+                }
+                KeyCode::PageUp => {
+                    cursor_pos = cursor_pos.saturating_sub(list_rows);
+                    scroll_offset = scroll_offset.saturating_sub(list_rows);
+                }
+                KeyCode::PageDown => {
+                    cursor_pos = (cursor_pos + list_rows).min(entries.len().saturating_sub(1));
+                    if cursor_pos >= scroll_offset + list_rows {
+                        scroll_offset = cursor_pos + 1 - list_rows;
+                    }
+                }
+                KeyCode::Enter => {
+                    if let Some(entry) = entries.get(cursor_pos) {
+                        if entry.is_dir {
+                            // Navigate into the directory
+                            current_dir = entry.path.clone();
+                            entries = read_dir_entries(&current_dir);
+                            cursor_pos = 0;
+                            scroll_offset = 0;
+                        } else {
+                            // Return the selected file's path
+                            let chosen = entry.path.to_string_lossy().to_string();
+                            break Some(chosen);
+                        }
+                    }
+                }
+                KeyCode::Esc => {
+                    break None;
+                }
+                // Ctrl+C / Ctrl+Q also cancel
+                KeyCode::Char('c') | KeyCode::Char('q')
+                    if key.modifiers.contains(KeyModifiers::CONTROL) =>
+                {
+                    break None;
+                }
+                _ => {}
+            }
+        }
+    };
+
+    // Restore terminal state
+    let _ = execute!(stdout, terminal::LeaveAlternateScreen, cursor::Show);
+    let _ = terminal::disable_raw_mode();
+
+    result
+}
+
