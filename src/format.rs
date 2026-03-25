@@ -6,7 +6,9 @@
 
 use crate::delete_ops;
 use crate::editor_state::Buffer;
+use crate::editor_state::TextLine;
 use crate::motion;
+use crate::text::create_empty_line;
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -14,7 +16,7 @@ use crate::motion;
 
 /// Returns `true` if the line is blank (all whitespace), `None` (no line),
 /// or starts with '.' or '>' (troff/nroff / mail-quote markers).
-pub fn blank_line(line: Option<&crate::editor_state::TextLine>) -> bool {
+pub fn blank_line(line: Option<&TextLine>) -> bool {
     match line {
         None => true,
         Some(l) => {
@@ -29,56 +31,37 @@ pub fn blank_line(line: Option<&crate::editor_state::TextLine>) -> bool {
 
 /// Returns `true` if the previous line of `buff` is blank.
 fn prev_line_blank(buff: &Buffer) -> bool {
-    let prev = buff
-        .curr_line
-        .as_ref()
-        .and_then(|l| l.borrow().prev_line.clone());
-    match prev {
-        None => true,
-        Some(p) => {
-            let line = p.borrow();
-            blank_line(Some(&*line))
-        }
+    if buff.curr_line_idx == 0 || buff.curr_line_idx > buff.lines.len() {
+        return true;
     }
+    let prev = &buff.lines[buff.curr_line_idx - 1];
+    blank_line(Some(prev))
 }
 
 /// Returns `true` if the next line of `buff` is blank.
 fn next_line_blank(buff: &Buffer) -> bool {
-    let next = buff
-        .curr_line
-        .as_ref()
-        .and_then(|l| l.borrow().next_line.clone());
-    match next {
-        None => true,
-        Some(n) => {
-            let line = n.borrow();
-            blank_line(Some(&*line))
-        }
+    if buff.curr_line_idx + 1 >= buff.lines.len() {
+        return true;
     }
+    let next = &buff.lines[buff.curr_line_idx + 1];
+    blank_line(Some(next))
 }
 
 /// Returns `true` if the current line of `buff` is blank.
 fn curr_line_blank(buff: &Buffer) -> bool {
-    match buff.curr_line.as_ref() {
-        None => true,
-        Some(l) => {
-            let line = l.borrow();
-            blank_line(Some(&*line))
-        }
+    if buff.curr_line_idx >= buff.lines.len() {
+        return true;
     }
+    let line = &buff.lines[buff.curr_line_idx];
+    blank_line(Some(line))
 }
 
 /// Length (in chars) of the first word + trailing whitespace on a line.
 fn first_word_len(buff: &Buffer) -> usize {
-    let next = buff
-        .curr_line
-        .as_ref()
-        .and_then(|l| l.borrow().next_line.clone());
-    let next = match next {
-        Some(n) => n,
-        None => return 0,
-    };
-    let line = next.borrow();
+    if buff.curr_line_idx + 1 >= buff.lines.len() {
+        return 0;
+    }
+    let line = &buff.lines[buff.curr_line_idx + 1];
     let s = &line.line;
     if s.is_empty() || s.starts_with('.') || s.starts_with('>') {
         return 0;
@@ -144,13 +127,12 @@ fn prev_word(buff: &mut Buffer) {
 
 /// Insert a single character at the current position.
 fn insert_char(buff: &mut Buffer, ch: char) {
-    let line_rc = match buff.curr_line.as_ref() {
-        Some(l) => l.clone(),
-        None => return,
-    };
+    if buff.curr_line_idx >= buff.lines.len() {
+        return;
+    }
     let pos = (buff.position as usize).saturating_sub(1);
     {
-        let mut line = line_rc.borrow_mut();
+        let line = &mut buff.lines[buff.curr_line_idx];
         let safe_pos = pos.min(line.line.len());
         line.line.insert(safe_pos, ch);
         line.line_length = line.line.len() as i32 + 1;
@@ -175,36 +157,28 @@ fn del_word_at_cursor(buff: &mut Buffer) -> String {
 
 /// Insert a newline / split the line at the cursor.
 fn insert_line(buff: &mut Buffer) {
-    // Split current line at cursor position
-    let line_rc = match buff.curr_line.as_ref() {
-        Some(l) => l.clone(),
-        None => return,
-    };
+    if buff.curr_line_idx >= buff.lines.len() {
+        return;
+    }
     let pos = (buff.position as usize).saturating_sub(1);
     let rest = {
-        let mut line = line_rc.borrow_mut();
+        let line = &mut buff.lines[buff.curr_line_idx];
         let rest = line.line[pos..].to_string();
         line.line.truncate(pos);
         line.line_length = line.line.len() as i32 + 1;
         line.changed = true;
         rest
     };
-    let new_line_rc = crate::text::txtalloc();
-    {
-        let mut new_line = new_line_rc.borrow_mut();
-        new_line.line = rest;
-        new_line.line_length = new_line.line.len() as i32 + 1;
-        new_line.max_length = new_line.line_length + 10;
-        new_line.line_number = line_rc.borrow().line_number + 1;
-        new_line.vert_len = 1;
-        new_line.prev_line = Some(line_rc.clone());
-        new_line.next_line = line_rc.borrow().next_line.clone();
-    }
-    if let Some(ref nx) = new_line_rc.borrow().next_line.clone() {
-        nx.borrow_mut().prev_line = Some(new_line_rc.clone());
-    }
-    line_rc.borrow_mut().next_line = Some(new_line_rc.clone());
-    buff.curr_line = Some(new_line_rc);
+    let mut new_line = create_empty_line();
+    new_line.line = rest;
+    new_line.line_length = new_line.line.len() as i32 + 1;
+    new_line.max_length = new_line.line_length + 10;
+    new_line.line_number = buff.lines[buff.curr_line_idx].line_number + 1;
+    new_line.vert_len = 1;
+
+    buff.lines.insert(buff.curr_line_idx + 1, new_line);
+    buff.curr_line_idx += 1;
+
     buff.num_of_lines = buff.num_of_lines.saturating_add(1);
     buff.absolute_lin = buff.absolute_lin.saturating_add(1);
     buff.position = 1;
@@ -259,23 +233,10 @@ pub fn format_paragraph(
     // ── Move to start of paragraph (back over non-blank lines) ────────────────
     bol(buff);
     while !prev_line_blank(buff) {
-        let has_prev = buff
-            .curr_line
-            .as_ref()
-            .and_then(|l| l.borrow().prev_line.clone())
-            .is_some();
-        if !has_prev {
+        if buff.curr_line_idx == 0 {
             break;
         }
-        let prev = buff
-            .curr_line
-            .as_ref()
-            .unwrap()
-            .borrow()
-            .prev_line
-            .clone()
-            .unwrap();
-        buff.curr_line = Some(prev);
+        buff.curr_line_idx -= 1;
         buff.absolute_lin -= 1;
         if buff.scr_vert > 0 {
             buff.scr_vert -= 1;
@@ -291,13 +252,11 @@ pub fn format_paragraph(
         eol(buff);
         // ensure a space before the merged content
         {
-            let line_rc = match buff.curr_line.as_ref() {
-                Some(l) => l.clone(),
-                None => break,
-            };
-            let line = line_rc.borrow();
+            if buff.curr_line_idx >= buff.lines.len() {
+                break;
+            }
+            let line = &buff.lines[buff.curr_line_idx];
             let ends_space = line.line.ends_with(' ');
-            drop(line);
             if !ends_space {
                 insert_char(buff, ' ');
             }
@@ -307,12 +266,11 @@ pub fn format_paragraph(
         // strip leading whitespace of the joined text
         // (position is now just past the space we added; del leading spaces from merged bit)
         {
-            let line_rc = match buff.curr_line.as_ref() {
-                Some(l) => l.clone(),
-                None => break,
-            };
+            if buff.curr_line_idx >= buff.lines.len() {
+                break;
+            }
             let pos = (buff.position as usize).saturating_sub(1);
-            let mut line = line_rc.borrow_mut();
+            let line = &mut buff.lines[buff.curr_line_idx];
             while pos < line.line.len()
                 && (line.line.as_bytes()[pos] == b' ' || line.line.as_bytes()[pos] == b'\t')
             {
@@ -327,11 +285,10 @@ pub fn format_paragraph(
     // skip leading indent
     {
         let ch = {
-            let line_rc = match buff.curr_line.as_ref() {
-                Some(l) => l.clone(),
-                None => return,
-            };
-            let line = line_rc.borrow();
+            if buff.curr_line_idx >= buff.lines.len() {
+                return;
+            }
+            let line = &buff.lines[buff.curr_line_idx];
             line.line.chars().next().unwrap_or('x')
         };
         if ch == ' ' || ch == '\t' {
@@ -340,11 +297,10 @@ pub fn format_paragraph(
     }
     loop {
         let (pos, len, cur_ch, next_ch) = {
-            let line_rc = match buff.curr_line.as_ref() {
-                Some(l) => l.clone(),
-                None => break,
-            };
-            let line = line_rc.borrow();
+            if buff.curr_line_idx >= buff.lines.len() {
+                break;
+            }
+            let line = &buff.lines[buff.curr_line_idx];
             let p = (buff.position as usize).saturating_sub(1);
             let len = line.line.len();
             let cur = line.line.chars().nth(p).unwrap_or('\0');
@@ -365,11 +321,10 @@ pub fn format_paragraph(
     bol(buff);
     loop {
         let (pos, len, cur_ch, next_ch) = {
-            let line_rc = match buff.curr_line.as_ref() {
-                Some(l) => l.clone(),
-                None => break,
-            };
-            let line = line_rc.borrow();
+            if buff.curr_line_idx >= buff.lines.len() {
+                break;
+            }
+            let line = &buff.lines[buff.curr_line_idx];
             let p = (buff.position as usize).saturating_sub(1);
             let len = line.line.len();
             let cur = line.line.chars().nth(p).unwrap_or('\0');
@@ -384,11 +339,10 @@ pub fn format_paragraph(
                          // delete existing spaces
             loop {
                 let ch = {
-                    let line_rc = match buff.curr_line.as_ref() {
-                        Some(l) => l.clone(),
-                        None => break,
-                    };
-                    let line = line_rc.borrow();
+                    if buff.curr_line_idx >= buff.lines.len() {
+                        break;
+                    }
+                    let line = &buff.lines[buff.curr_line_idx];
                     let p = (buff.position as usize).saturating_sub(1);
                     line.line.chars().nth(p).unwrap_or('\0')
                 };
@@ -411,11 +365,10 @@ pub fn format_paragraph(
         // Advance to right_margin
         loop {
             let (pos, len) = {
-                let line_rc = match buff.curr_line.as_ref() {
-                    Some(l) => l.clone(),
-                    None => break,
-                };
-                let line = line_rc.borrow();
+                if buff.curr_line_idx >= buff.lines.len() {
+                    break;
+                }
+                let line = &buff.lines[buff.curr_line_idx];
                 (buff.position as usize, line.line.len())
             };
             if pos > len || buff.scr_horz >= rmargin {
@@ -424,11 +377,10 @@ pub fn format_paragraph(
             right(buff);
         }
         let (pos, len) = {
-            let line_rc = match buff.curr_line.as_ref() {
-                Some(l) => l.clone(),
-                None => break,
-            };
-            let line = line_rc.borrow();
+            if buff.curr_line_idx >= buff.lines.len() {
+                break;
+            }
+            let line = &buff.lines[buff.curr_line_idx];
             (buff.position as usize, line.line.len())
         };
         if pos >= len {
@@ -443,11 +395,10 @@ pub fn format_paragraph(
         // strip leading spaces at start of new line
         loop {
             let ch = {
-                let line_rc = match buff.curr_line.as_ref() {
-                    Some(l) => l.clone(),
-                    None => break,
-                };
-                let line = line_rc.borrow();
+                if buff.curr_line_idx >= buff.lines.len() {
+                    break;
+                }
+                let line = &buff.lines[buff.curr_line_idx];
                 line.line.chars().next().unwrap_or('\0')
             };
             if ch == ' ' || ch == '\t' {
@@ -467,23 +418,10 @@ pub fn format_paragraph(
         // Walk back to start of paragraph
         bol(buff);
         while !prev_line_blank(buff) {
-            let has_prev = buff
-                .curr_line
-                .as_ref()
-                .and_then(|l| l.borrow().prev_line.clone())
-                .is_some();
-            if !has_prev {
+            if buff.curr_line_idx == 0 {
                 break;
             }
-            let prev = buff
-                .curr_line
-                .as_ref()
-                .unwrap()
-                .borrow()
-                .prev_line
-                .clone()
-                .unwrap();
-            buff.curr_line = Some(prev);
+            buff.curr_line_idx -= 1;
             buff.absolute_lin -= 1;
             if buff.scr_vert > 0 {
                 buff.scr_vert -= 1;
@@ -528,11 +466,10 @@ pub fn auto_format(buff: &mut Buffer, right_margin: i32) {
     // ── If current line exceeds margin, push last word to next line ───────────
     if buff.scr_horz >= rmargin {
         let last_pos = {
-            let line_rc = match buff.curr_line.as_ref() {
-                Some(l) => l.clone(),
-                None => return,
-            };
-            let line = line_rc.borrow();
+            if buff.curr_line_idx >= buff.lines.len() {
+                return;
+            }
+            let line = &buff.lines[buff.curr_line_idx];
             line.line.len()
         };
         eol(buff);
@@ -544,13 +481,12 @@ pub fn auto_format(buff: &mut Buffer, right_margin: i32) {
             if buff.position > 1 {
                 left(buff);
                 let trail = {
-                    match buff.curr_line.as_ref() {
-                        None => '\0',
-                        Some(line_rc) => {
-                            let line = line_rc.borrow();
-                            let p = (buff.position as usize).saturating_sub(1);
-                            line.line.chars().nth(p).unwrap_or('\0')
-                        }
+                    if buff.curr_line_idx >= buff.lines.len() {
+                        '\0'
+                    } else {
+                        let line = &buff.lines[buff.curr_line_idx];
+                        let p = (buff.position as usize).saturating_sub(1);
+                        line.line.chars().nth(p).unwrap_or('\0')
                     }
                 };
                 if trail == ' ' {
@@ -579,24 +515,19 @@ pub fn auto_format(buff: &mut Buffer, right_margin: i32) {
     // ── If there's room, pull first word from next line ───────────────────────
     let wlen = first_word_len(buff);
     if wlen > 0 && (buff.scr_horz as usize + wlen) < rmargin as usize && !next_line_blank(buff) {
-        let saved_line = buff.curr_line.clone();
+        let saved_idx = buff.curr_line_idx;
         let saved_pos = buff.position;
         let saved_vert = buff.scr_vert;
         let saved_alin = buff.absolute_lin;
 
         adv_line(buff);
-        if buff
-            .curr_line
-            .as_ref()
-            .and_then(|l| l.borrow().prev_line.clone())
-            .is_some()
-        {
+        if buff.curr_line_idx > 0 {
             let word = del_word_at_cursor(buff);
             if curr_line_blank(buff) {
                 del_line(buff);
             }
             // go back to original line end
-            buff.curr_line = saved_line;
+            buff.curr_line_idx = saved_idx;
             buff.position = saved_pos;
             buff.scr_vert = saved_vert;
             buff.absolute_lin = saved_alin;
@@ -604,7 +535,7 @@ pub fn auto_format(buff: &mut Buffer, right_margin: i32) {
             insert_char(buff, ' ');
             undel_word(buff, &word);
         } else {
-            buff.curr_line = saved_line;
+            buff.curr_line_idx = saved_idx;
             buff.position = saved_pos;
             buff.scr_vert = saved_vert;
             buff.absolute_lin = saved_alin;

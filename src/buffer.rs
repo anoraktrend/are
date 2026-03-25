@@ -8,15 +8,15 @@ use std::rc::Rc;
 pub fn buf_alloc() -> Rc<RefCell<Buffer>> {
     Rc::new(RefCell::new(Buffer {
         name: String::new(),
-        first_line: None,
+        lines: Vec::new(),
         next_buff: None,
-        curr_line: None,
+        curr_line_idx: 0,
         scr_vert: 0,
         scr_horz: 0,
         scr_pos: 0,
         position: 1,
         abs_pos: 0,
-        lines: 0,
+        win_lines: 0,
         last_line: 0,
         last_col: 0,
         num_of_lines: 0,

@@ -60,8 +60,6 @@ pub struct TextLine {
     pub changed: bool,
     /// Number of characters including the null terminator slot.
     pub line_length: i32,
-    pub prev_line: Option<Rc<RefCell<TextLine>>>,
-    pub next_line: Option<Rc<RefCell<TextLine>>>,
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -74,11 +72,11 @@ pub struct Buffer {
     /// Buffer name (short file name or generated name like "A", "B", …).
     pub name: String,
     /// First line of text in this buffer.
-    pub first_line: Option<Rc<RefCell<TextLine>>>,
+    pub lines: Vec<TextLine>,
     /// Next buffer in the linked list (traversed by `EditorState::buf_count`).
     pub next_buff: Option<Rc<RefCell<Buffer>>>,
     /// Current line the cursor is on.
-    pub curr_line: Option<Rc<RefCell<TextLine>>>,
+    pub curr_line_idx: usize,
 
     // ── Cursor / screen position ────────────────────────────────────────────
     /// Vertical position of cursor within the window (0-based).
@@ -94,7 +92,7 @@ pub struct Buffer {
 
     // ── Window geometry ─────────────────────────────────────────────────────
     /// Total text rows allocated to this buffer's window.
-    pub lines: i32,
+    pub win_lines: i32,
     /// Last visible row in the window (lines - 1).
     pub last_line: i32,
     /// Last visible column (COLS - 1).
@@ -150,11 +148,11 @@ pub struct TabStop {
 #[derive(Clone)]
 pub enum LastAction {
     InsertChar {
-        line: Rc<RefCell<TextLine>>,
+        line_idx: usize,
         pos: usize,
     },
     DeleteChar {
-        line: Rc<RefCell<TextLine>>,
+        line_idx: usize,
         pos: usize,
         ch: char,
     },
@@ -171,30 +169,30 @@ pub enum LastAction {
 pub struct EditorState {
     // ── Convenience references (also exist inside curr_buff) ─────────────────
     /// Mirrors `first_line` global – synced from `curr_buff` each iteration.
-    pub first_line: Option<Rc<RefCell<TextLine>>>,
+    pub lines: Vec<TextLine>,
     /// Mirrors `curr_line` global – synced from `curr_buff` each iteration.
-    pub curr_line: Option<Rc<RefCell<TextLine>>>,
+    pub curr_line_idx: usize,
     /// Cut/paste buffer (mirrors C `paste_buff`).
     #[allow(dead_code)]
-    pub paste_buff: Option<Rc<RefCell<TextLine>>>,
+    pub paste_buff: Vec<TextLine>,
     /// Deleted-line buffer (mirrors C `dlt_line`).
     #[allow(dead_code)]
-    pub dlt_line: Option<Rc<RefCell<TextLine>>>,
+    pub dlt_line: Vec<TextLine>,
     /// First paste-line pointer (mirrors C `fpste_line`).
     #[allow(dead_code)]
-    pub fpste_line: Option<Rc<RefCell<TextLine>>>,
+    pub fpste_line_idx: usize,
     /// Current paste-line pointer (mirrors C `cpste_line`).
     #[allow(dead_code)]
-    pub cpste_line: Option<Rc<RefCell<TextLine>>>,
+    pub cpste_line_idx: usize,
     /// Paste temp pointer (mirrors C `pste_tmp`).
     #[allow(dead_code)]
-    pub pste_tmp: Option<Rc<RefCell<TextLine>>>,
+    pub pste_tmp_idx: usize,
     /// Temp line pointer (mirrors C `tmp_line`).
     #[allow(dead_code)]
-    pub tmp_line: Option<Rc<RefCell<TextLine>>>,
+    pub tmp_line_idx: usize,
     /// Search anchor line (mirrors C `srch_line`).
     #[allow(dead_code)]
-    pub srch_line: Option<Rc<RefCell<TextLine>>>,
+    pub srch_line_idx: usize,
 
     // ── Buffer list ───────────────────────────────────────────────────────────
     pub first_buff: Option<Rc<RefCell<Buffer>>>,
@@ -338,15 +336,15 @@ pub struct EditorState {
 impl EditorState {
     pub fn new() -> Self {
         EditorState {
-            first_line: None,
-            curr_line: None,
-            paste_buff: None,
-            dlt_line: None,
-            fpste_line: None,
-            cpste_line: None,
-            pste_tmp: None,
-            tmp_line: None,
-            srch_line: None,
+            lines: Vec::new(),
+            curr_line_idx: 0,
+            paste_buff: Vec::new(),
+            dlt_line: Vec::new(),
+            fpste_line_idx: 0,
+            cpste_line_idx: 0,
+            pste_tmp_idx: 0,
+            tmp_line_idx: 0,
+            srch_line_idx: 0,
             first_buff: None,
             curr_buff: None,
             windows: true,
@@ -493,19 +491,10 @@ impl EditorState {
         if let Some(ref buff_rc) = self.first_buff {
             let mut buff = buff_rc.borrow_mut();
             buff.name = MAIN_BUFFER_NAME.to_string();
-            buff.first_line = Some(crate::text::txtalloc());
-            buff.curr_line = buff.first_line.clone();
+            buff.lines = vec![crate::text::create_empty_line()];
+            buff.curr_line_idx = 0;
             buff.main_buffer = true;
             buff.edit_buffer = true;
-
-            if let Some(ref line_rc) = buff.curr_line.clone() {
-                let mut line = line_rc.borrow_mut();
-                line.line = String::new();
-                line.line_length = 1; // includes null slot, like C
-                line.max_length = 10;
-                line.line_number = 1;
-                line.vert_len = 1;
-            }
 
             buff.num_of_lines = 1;
             buff.absolute_lin = 1;
@@ -517,7 +506,7 @@ impl EditorState {
 
             // Initialize window geometry from terminal size
             let (cols, rows) = crate::ui::get_terminal_size();
-            buff.lines = rows as i32 - 1;
+            buff.win_lines = rows as i32 - 1;
             buff.last_line = rows as i32 - 2;
             buff.last_col = cols as i32 - 1;
         }
@@ -582,31 +571,14 @@ impl EditorState {
         if let Some(ref buff_rc) = self.first_buff {
             let mut buff = buff_rc.borrow_mut();
 
-            // Overwrite the initial blank line.
-            if let Some(ref line_rc) = buff.first_line {
-                let mut line = line_rc.borrow_mut();
-                line.line = lines[0].clone();
-                line.line_length = line.line.len() as i32 + 1;
-                line.max_length = line.line_length + 10;
-                line.line_number = 1;
-            }
-
-            // Append remaining lines as a linked list.
-            let mut prev = buff.first_line.clone();
-            for (i, l) in lines.iter().enumerate().skip(1) {
-                let new_line = crate::text::txtalloc();
-                {
-                    let mut nl = new_line.borrow_mut();
-                    nl.line = l.clone();
-                    nl.line_length = nl.line.len() as i32 + 1;
-                    nl.max_length = nl.line_length + 10;
-                    nl.line_number = (i + 1) as i32;
-                    nl.prev_line = prev.clone();
-                }
-                if let Some(ref p) = prev {
-                    p.borrow_mut().next_line = Some(new_line.clone());
-                }
-                prev = Some(new_line);
+            buff.lines.clear();
+            for (i, l) in lines.iter().enumerate() {
+                let mut new_line = crate::text::create_empty_line();
+                new_line.line = l.clone();
+                new_line.line_length = new_line.line.len() as i32 + 1;
+                new_line.max_length = new_line.line_length + 10;
+                new_line.line_number = (i + 1) as i32;
+                buff.lines.push(new_line);
             }
 
             buff.num_of_lines = lines.len() as i32;

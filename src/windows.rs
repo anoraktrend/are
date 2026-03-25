@@ -116,20 +116,16 @@ fn paint_buffer_region(
     stdout: &mut io::Stdout,
 ) {
     // Paint text lines
-    let mut line_rc_opt = buff.first_line.clone();
-    // Advance to the scroll offset (window_top line)
-    for _ in 0..buff.window_top {
-        line_rc_opt = line_rc_opt.and_then(|l| l.borrow().next_line.clone());
-    }
+    let mut current_idx = buff.window_top as usize;
 
     for row in 0..layout.lines {
         let _ = execute!(stdout, cursor::MoveTo(layout.top + row, 0));
         let _ = queue!(stdout, Clear(ClearType::CurrentLine));
-        if let Some(ref line_rc) = line_rc_opt.clone() {
-            let text = line_rc.borrow().line.clone();
+        if current_idx < buff.lines.len() {
+            let text = buff.lines[current_idx].line.clone();
             let display: String = text.chars().take(layout.cols as usize).collect();
             let _ = queue!(stdout, Print(&display));
-            line_rc_opt = line_rc.borrow().next_line.clone();
+            current_idx += 1;
         }
     }
 
@@ -165,17 +161,14 @@ fn paint_footer(buff: &Buffer, layout: &WindowLayout, focused: bool, stdout: &mu
 /// Returns the newly-created buffer.
 pub fn add_buf(ident: &str) -> Buffer {
     use crate::editor_state::Buffer;
-    use crate::text::txtalloc;
+    use crate::text::create_empty_line;
 
-    let first_line = txtalloc();
-    {
-        let mut l = first_line.borrow_mut();
-        l.line = String::new();
-        l.line_length = 1;
-        l.max_length = 10;
-        l.line_number = 1;
-        l.vert_len = 1;
-    }
+    let mut first_line = create_empty_line();
+    first_line.line = String::new();
+    first_line.line_length = 1;
+    first_line.max_length = 10;
+    first_line.line_number = 1;
+    first_line.vert_len = 1;
 
     let (cols, rows) = terminal::size().unwrap_or((80, 24));
     Buffer {
@@ -184,8 +177,8 @@ pub fn add_buf(ident: &str) -> Buffer {
         full_name: None,
         orig_dir: None,
         next_buff: None,
-        first_line: Some(first_line.clone()),
-        curr_line: Some(first_line),
+        lines: vec![first_line],
+        curr_line_idx: 0,
         position: 1,
         abs_pos: 0,
         scr_pos: 0,
@@ -196,7 +189,7 @@ pub fn add_buf(ident: &str) -> Buffer {
         absolute_lin: 1,
         changed: false,
         edit_buffer: true,
-        lines: rows as i32 - 1,
+        win_lines: rows as i32 - 1,
         last_line: rows as i32 - 2,
         last_col: cols as i32 - 1,
         main_buffer: false,
@@ -219,8 +212,8 @@ pub fn resize_check(buff: &mut Buffer, last_cols: u16, last_rows: u16) -> bool {
     if cols == last_cols && rows == last_rows {
         return false;
     }
-    buff.lines = rows as i32 - 1;
-    buff.last_line = buff.lines - 1;
+    buff.win_lines = rows as i32 - 1;
+    buff.last_line = buff.win_lines - 1;
     buff.last_col = cols as i32 - 1;
     true
 }

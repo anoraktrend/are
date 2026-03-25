@@ -49,14 +49,21 @@ pub fn search_forward(
     let _start_line_num = buff.absolute_lin;
     let start_pos = buff.position as usize; // 1-based
 
-    let mut current = buff.curr_line.clone()?;
+    if buff.curr_line_idx >= buff.lines.len() {
+        return None;
+    }
+
+    let mut current_idx = buff.curr_line_idx;
     let mut line_num = buff.absolute_lin;
     let mut lines_moved = 0i32;
     let mut first_line = true;
 
     loop {
         let (found_col, line_abs_lin) = {
-            let line = current.borrow();
+            if current_idx >= buff.lines.len() {
+                break;
+            }
+            let line = &buff.lines[current_idx];
             let text = &line.line;
             // On the first line we start searching *after* the cursor position.
             let search_from = if first_line { start_pos } else { 0 };
@@ -88,7 +95,7 @@ pub fn search_forward(
 
         if let Some(col) = found_col {
             // Update buffer state
-            buff.curr_line = Some(current.clone());
+            buff.curr_line_idx = current_idx;
             buff.absolute_lin = line_abs_lin;
             buff.position = col;
             buff.scr_horz = (col - 1).max(0);
@@ -110,16 +117,13 @@ pub fn search_forward(
         }
 
         // Advance to next line
-        let next = current.borrow().next_line.clone();
-        match next {
-            Some(n) => {
-                current = n;
-                line_num += 1;
-                lines_moved += 1;
-                first_line = false;
-            }
-            None => break, // reached EOF without finding the needle
+        current_idx += 1;
+        if current_idx >= buff.lines.len() {
+            break;
         }
+        line_num += 1;
+        lines_moved += 1;
+        first_line = false;
     }
 
     None
@@ -144,14 +148,17 @@ pub fn search_backward(
 
     let start_pos = (buff.position as usize).saturating_sub(2); // search *before* cursor
 
-    let mut current = buff.curr_line.clone()?;
+    if buff.curr_line_idx >= buff.lines.len() {
+        return None;
+    }
+    let mut current_idx = buff.curr_line_idx;
     let mut line_num = buff.absolute_lin;
     let mut lines_moved = 0i32;
     let mut first_line = true;
 
     loop {
         let found_col: Option<i32> = {
-            let line = current.borrow();
+            let line = &buff.lines[current_idx];
             let text = &line.line;
             let search_to = if first_line {
                 start_pos.min(text.len())
@@ -171,7 +178,7 @@ pub fn search_backward(
         };
 
         if let Some(col) = found_col {
-            buff.curr_line = Some(current.clone());
+            buff.curr_line_idx = current_idx;
             buff.absolute_lin = line_num;
             buff.position = col;
             buff.scr_horz = (col - 1).max(0);
@@ -191,16 +198,13 @@ pub fn search_backward(
             });
         }
 
-        let prev = current.borrow().prev_line.clone();
-        match prev {
-            Some(p) => {
-                current = p;
-                line_num -= 1;
-                lines_moved += 1;
-                first_line = false;
-            }
-            None => break,
+        if current_idx == 0 {
+            break;
         }
+        current_idx -= 1;
+        line_num -= 1;
+        lines_moved += 1;
+        first_line = false;
     }
 
     None
@@ -222,13 +226,13 @@ pub fn replace_next(
         None => false,
         Some(_res) => {
             // The buffer is now positioned at the start of the match.
-            let line_rc = match buff.curr_line.as_ref() {
-                Some(l) => l.clone(),
-                None => return false,
-            };
+            if buff.curr_line_idx >= buff.lines.len() {
+                return false;
+            }
+
             let pos = (buff.position as usize).saturating_sub(1); // 0-indexed
             {
-                let mut line = line_rc.borrow_mut();
+                let line = &mut buff.lines[buff.curr_line_idx];
                 // Locate byte offset
                 let byte_start: usize = line.line.chars().take(pos).map(|c| c.len_utf8()).sum();
                 let byte_end = byte_start + needle.len();

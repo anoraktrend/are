@@ -1,27 +1,21 @@
 //! Mark / cut / copy / paste – ported from src/mark.c
 //!
-//! The paste buffer is a separate linked list of `TextLine` nodes that
+//! The paste buffer is a separate list of `TextLine` nodes that
 //! mirrors the editor's main text list.  Copy/cut populate it; paste
 //! inserts it at the current cursor position.
 
-use std::cell::RefCell;
-use std::rc::Rc;
-
 use crate::delete_ops;
 use crate::editor_state::{Buffer, TextLine};
-use crate::text::txtalloc;
+use crate::text::create_empty_line;
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Mark-mode flags (mirrors C enum values)
 // ──────────────────────────────────────────────────────────────────────────────
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-#[allow(dead_code)]
 pub enum MarkMode {
     Inactive,
     Mark,
-    Append,
-    Prefix,
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -32,12 +26,10 @@ pub enum MarkMode {
 pub struct MarkState {
     /// Current mark mode.
     pub mode: MarkMode,
-    /// First line of the paste buffer (result of copy/cut).
-    pub paste_buff: Option<Rc<RefCell<TextLine>>>,
-    /// First line of the select buffer (being built during mark).
-    pub fpste_line: Option<Rc<RefCell<TextLine>>>,
-    /// Current line of the select buffer.
-    pub cpste_line: Option<Rc<RefCell<TextLine>>>,
+    /// The paste buffer (result of copy/cut).
+    pub paste_buff: Vec<TextLine>,
+    /// The select buffer (being built during mark).
+    pub select_buff: Vec<TextLine>,
     /// Position within `cpste_line`.
     pub pst_pos: i32,
 }
@@ -46,27 +38,11 @@ impl MarkState {
     pub fn new() -> Self {
         MarkState {
             mode: MarkMode::Inactive,
-            paste_buff: None,
-            fpste_line: None,
-            cpste_line: None,
+            paste_buff: Vec::new(),
+            select_buff: Vec::new(),
             pst_pos: 1,
         }
     }
-}
-
-// ──────────────────────────────────────────────────────────────────────────────
-// Allocate a new paste line
-// ──────────────────────────────────────────────────────────────────────────────
-
-fn alloc_paste_line(max_len: usize) -> Rc<RefCell<TextLine>> {
-    let rc = txtalloc();
-    {
-        let mut l = rc.borrow_mut();
-        l.line = String::with_capacity(max_len);
-        l.line_length = 1;
-        l.max_length = max_len as i32 + 10;
-    }
-    rc
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -80,14 +56,18 @@ pub fn slct(ms: &mut MarkState, buff: &Buffer, mode: MarkMode) {
         return;
     }
     ms.mode = mode;
-    let max_len = buff
-        .curr_line
-        .as_ref()
-        .map(|l| l.borrow().max_length as usize)
-        .unwrap_or(64);
-    let new_line = alloc_paste_line(max_len);
-    ms.fpste_line = Some(new_line.clone());
-    ms.cpste_line = Some(new_line);
+    let max_len = if buff.curr_line_idx < buff.lines.len() {
+        buff.lines[buff.curr_line_idx].max_length as usize
+    } else {
+        64
+    };
+
+    let mut new_line = create_empty_line();
+    new_line.line = String::with_capacity(max_len);
+    new_line.line_length = 1;
+    new_line.max_length = max_len as i32 + 10;
+
+    ms.select_buff = vec![new_line];
     ms.pst_pos = 1;
 }
 
@@ -97,8 +77,7 @@ pub fn slct(ms: &mut MarkState, buff: &Buffer, mode: MarkMode) {
 
 pub fn unmark_text(ms: &mut MarkState) {
     ms.mode = MarkMode::Inactive;
-    ms.fpste_line = None;
-    ms.cpste_line = None;
+    ms.select_buff.clear();
     ms.pst_pos = 1;
 }
 
@@ -111,56 +90,20 @@ pub fn copy(ms: &mut MarkState) -> bool {
     if ms.mode == MarkMode::Inactive {
         return false;
     }
-    let fpste = match ms.fpste_line.take() {
-        Some(f) => f,
-        None => {
-            unmark_text(ms);
-            return false;
-        }
-    };
+    if ms.select_buff.is_empty() {
+        unmark_text(ms);
+        return false;
+    }
 
     match ms.mode {
         MarkMode::Mark => {
-            ms.paste_buff = Some(fpste);
+            ms.paste_buff = ms.select_buff.clone();
         }
-        MarkMode::Append => {
-            // Append fpste chain onto the end of paste_buff
-            if let Some(ref pb) = ms.paste_buff.clone() {
-                let mut tail = pb.clone();
-                loop {
-                    let next = tail.borrow().next_line.clone();
-                    match next {
-                        Some(n) => tail = n,
-                        None => break,
-                    }
-                }
-                tail.borrow_mut().next_line = Some(fpste.clone());
-                fpste.borrow_mut().prev_line = Some(tail);
-            } else {
-                ms.paste_buff = Some(fpste);
-            }
-        }
-        MarkMode::Prefix => {
-            // Prepend fpste chain before paste_buff
-            let mut tail = fpste.clone();
-            loop {
-                let next = tail.borrow().next_line.clone();
-                match next {
-                    Some(n) => tail = n,
-                    None => break,
-                }
-            }
-            if let Some(ref pb) = ms.paste_buff {
-                tail.borrow_mut().next_line = Some(pb.clone());
-                pb.borrow_mut().prev_line = Some(tail);
-            }
-            ms.paste_buff = Some(fpste);
-        }
-        MarkMode::Inactive => {}
+        MarkMode::Inactive => {} // Should not be reached due to check above
     }
 
     ms.mode = MarkMode::Inactive;
-    ms.cpste_line = None;
+    ms.select_buff.clear();
     ms.pst_pos = 1;
     true
 }
@@ -171,90 +114,75 @@ pub fn copy(ms: &mut MarkState) -> bool {
 
 /// Collect the text of the current line from `start_pos` (0-based) to `end_pos`
 /// into a new paste line node.
-fn collect_partial_line(
-    line_rc: &Rc<RefCell<TextLine>>,
-    start: usize,
-    end: usize,
-) -> Rc<RefCell<TextLine>> {
-    let text = {
-        let l = line_rc.borrow();
-        let s = start.min(l.line.len());
-        let e = end.min(l.line.len());
-        l.line[s..e].to_string()
-    };
-    let new_rc = txtalloc();
-    {
-        let mut n = new_rc.borrow_mut();
-        n.line = text;
-        n.line_length = n.line.len() as i32 + 1;
-        n.max_length = n.line_length + 10;
-    }
-    new_rc
+fn collect_partial_line(line: &TextLine, start: usize, end: usize) -> TextLine {
+    let s = start.min(line.line.len());
+    let e = end.min(line.line.len());
+    let text = line.line[s..e].to_string();
+
+    let mut n = create_empty_line();
+    n.line = text;
+    n.line_length = n.line.len() as i32 + 1;
+    n.max_length = n.line_length + 10;
+    n
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
 // mark_collect – build select buffer from anchor to cursor
 // ──────────────────────────────────────────────────────────────────────────────
 
-/// Build the select buffer from `anchor_line/anchor_pos` to the current
-/// cursor position.  Returns the first line of the newly built select buffer.
-pub fn mark_collect(
-    buff: &Buffer,
-    anchor_line: Rc<RefCell<TextLine>>,
-    anchor_pos: usize,
-) -> Option<Rc<RefCell<TextLine>>> {
-    let cursor_line_rc = buff.curr_line.as_ref()?.clone();
+/// Build the select buffer from `anchor_line_idx/anchor_pos` to the current
+/// cursor position.  Returns the newly built select buffer.
+pub fn mark_collect(buff: &Buffer, anchor_line_idx: usize, anchor_pos: usize) -> Vec<TextLine> {
+    if buff.curr_line_idx >= buff.lines.len() || anchor_line_idx >= buff.lines.len() {
+        return Vec::new();
+    }
     let cursor_pos = (buff.position as usize).saturating_sub(1);
 
     // Determine direction: anchor is start, cursor is end (or vice-versa).
     // Walk from anchor_line toward cursor_line collecting text.
-
-    let first_node =
-        collect_partial_line(&anchor_line, anchor_pos, anchor_line.borrow().line.len());
-    let mut tail = first_node.clone();
+    let mut collected = Vec::new();
 
     // Are they the same line?
-    if Rc::ptr_eq(&anchor_line, &cursor_line_rc) {
-        let text = {
-            let l = anchor_line.borrow();
-            let s = anchor_pos.min(l.line.len());
-            let e = cursor_pos.min(l.line.len());
-            if s <= e {
-                l.line[s..e].to_string()
-            } else {
-                l.line[e..s].to_string()
-            }
+    if anchor_line_idx == buff.curr_line_idx {
+        let line = &buff.lines[anchor_line_idx];
+        let s = anchor_pos.min(line.line.len());
+        let e = cursor_pos.min(line.line.len());
+        let text = if s <= e {
+            line.line[s..e].to_string()
+        } else {
+            line.line[e..s].to_string()
         };
-        let single = txtalloc();
-        {
-            let mut n = single.borrow_mut();
-            n.line = text;
-            n.line_length = n.line.len() as i32 + 1;
-            n.max_length = n.line_length + 10;
-        }
-        return Some(single);
+        let mut n = create_empty_line();
+        n.line = text;
+        n.line_length = n.line.len() as i32 + 1;
+        n.max_length = n.line_length + 10;
+        collected.push(n);
+        return collected;
     }
 
     // Walk forward from anchor_line to cursor_line
-    let mut cur = anchor_line.borrow().next_line.clone();
-    while let Some(line_rc) = cur {
-        let is_last = Rc::ptr_eq(&line_rc, &cursor_line_rc);
+    // Assuming anchor comes before cursor for now
+    let first_node = collect_partial_line(
+        &buff.lines[anchor_line_idx],
+        anchor_pos,
+        buff.lines[anchor_line_idx].line.len(),
+    );
+    collected.push(first_node);
+
+    let mut cur_idx = anchor_line_idx + 1;
+    while cur_idx <= buff.curr_line_idx && cur_idx < buff.lines.len() {
+        let is_last = cur_idx == buff.curr_line_idx;
         let end_pos = if is_last {
             cursor_pos
         } else {
-            line_rc.borrow().line.len()
+            buff.lines[cur_idx].line.len()
         };
-        let node = collect_partial_line(&line_rc, 0, end_pos);
-        node.borrow_mut().prev_line = Some(tail.clone());
-        tail.borrow_mut().next_line = Some(node.clone());
-        tail = node;
-        if is_last {
-            break;
-        }
-        cur = line_rc.borrow().next_line.clone();
+        let node = collect_partial_line(&buff.lines[cur_idx], 0, end_pos);
+        collected.push(node);
+        cur_idx += 1;
     }
 
-    Some(first_node)
+    collected
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -265,27 +193,24 @@ pub fn mark_collect(
 pub fn cut(
     ms: &mut MarkState,
     buff: &mut Buffer,
-    anchor_line: Rc<RefCell<TextLine>>,
+    anchor_line_idx: usize,
     anchor_pos: usize,
 ) -> bool {
     if ms.mode == MarkMode::Inactive {
         return false;
     }
+    if buff.curr_line_idx >= buff.lines.len() || anchor_line_idx >= buff.lines.len() {
+        return false;
+    }
 
     // Collect into select buffer
-    if let Some(collected) = mark_collect(buff, anchor_line.clone(), anchor_pos) {
-        ms.fpste_line = Some(collected);
-        ms.cpste_line = ms.fpste_line.clone();
+    let collected = mark_collect(buff, anchor_line_idx, anchor_pos);
+    if !collected.is_empty() {
+        ms.select_buff = collected;
     }
 
     // Delete the region from the buffer
-    // Simple approach: delete lines from anchor to cursor
-    let cursor_line_rc = match buff.curr_line.as_ref() {
-        Some(l) => l.clone(),
-        None => return false,
-    };
-
-    if Rc::ptr_eq(&anchor_line, &cursor_line_rc) {
+    if anchor_line_idx == buff.curr_line_idx {
         // Single line: just delete the range
         let start = anchor_pos;
         let end = (buff.position as usize).saturating_sub(1);
@@ -295,7 +220,7 @@ pub fn cut(
             (end, start)
         };
         {
-            let mut line = cursor_line_rc.borrow_mut();
+            let line = &mut buff.lines[buff.curr_line_idx];
             if e <= line.line.len() {
                 line.line.replace_range(s..e, "");
                 line.line_length = line.line.len() as i32 + 1;
@@ -311,32 +236,18 @@ pub fn cut(
         // Multiple lines: truncate anchor line, remove intermediate lines,
         // truncate cursor line, then join anchor and cursor lines.
         {
-            let mut al = anchor_line.borrow_mut();
+            let al = &mut buff.lines[anchor_line_idx];
             al.line.truncate(anchor_pos);
             al.line_length = al.line.len() as i32 + 1;
             al.changed = true;
         }
-        // Remove lines between anchor and cursor
-        loop {
-            let next = anchor_line.borrow().next_line.clone();
-            match next {
-                None => break,
-                Some(ref n) if Rc::ptr_eq(n, &cursor_line_rc) => break,
-                Some(n) => {
-                    // Unlink n
-                    let nn = n.borrow().next_line.clone();
-                    anchor_line.borrow_mut().next_line = nn.clone();
-                    if let Some(ref nn2) = nn {
-                        nn2.borrow_mut().prev_line = Some(anchor_line.clone());
-                    }
-                    buff.num_of_lines -= 1;
-                }
-            }
-        }
+
+        let cursor_line_idx = buff.curr_line_idx;
+
         // Truncate cursor line from start to cursor_pos
         {
             let cursor_pos = (buff.position as usize).saturating_sub(1);
-            let mut cl = cursor_line_rc.borrow_mut();
+            let cl = &mut buff.lines[cursor_line_idx];
             let rest = if cursor_pos <= cl.line.len() {
                 cl.line[cursor_pos..].to_string()
             } else {
@@ -346,24 +257,29 @@ pub fn cut(
             cl.line_length = cl.line.len() as i32 + 1;
             cl.changed = true;
         }
+
         // Join cursor line onto anchor line
-        let rest = cursor_line_rc.borrow().line.clone();
+        let rest = buff.lines[cursor_line_idx].line.clone();
         {
-            let mut al = anchor_line.borrow_mut();
+            let al = &mut buff.lines[anchor_line_idx];
             al.line.push_str(&rest);
             al.line_length = al.line.len() as i32 + 1;
-            al.next_line = cursor_line_rc.borrow().next_line.clone();
-            if let Some(ref nn) = al.next_line.clone() {
-                nn.borrow_mut().prev_line = Some(anchor_line.clone());
+        }
+
+        // Remove lines between anchor and cursor (inclusive of cursor line)
+        for _ in anchor_line_idx + 1..=cursor_line_idx {
+            if anchor_line_idx + 1 < buff.lines.len() {
+                buff.lines.remove(anchor_line_idx + 1);
+                buff.num_of_lines -= 1;
             }
         }
-        buff.curr_line = Some(anchor_line.clone());
+
+        buff.curr_line_idx = anchor_line_idx;
         buff.position = (anchor_pos + 1) as i32;
         buff.scr_horz = anchor_pos as i32;
         buff.scr_pos = buff.scr_horz;
         buff.abs_pos = buff.scr_pos;
         buff.changed = true;
-        buff.num_of_lines -= 1;
     }
 
     // Move select buffer to paste buffer
@@ -377,19 +293,17 @@ pub fn cut(
 
 /// Insert the paste buffer at the current cursor position.
 pub fn paste(ms: &MarkState, buff: &mut Buffer) -> bool {
-    let paste_first = match ms.paste_buff.as_ref() {
-        Some(p) => p.clone(),
-        None => return false,
-    };
+    if ms.paste_buff.is_empty() {
+        return false;
+    }
     if ms.mode != MarkMode::Inactive {
         return false;
     }
 
-    // Walk the paste buffer chain, inserting each line
-    let mut pline = paste_first;
-    loop {
-        let text = pline.borrow().line.clone();
-        let has_next = pline.borrow().next_line.is_some();
+    // Walk the paste buffer array, inserting each line
+    for (i, pline) in ms.paste_buff.iter().enumerate() {
+        let text = pline.line.clone();
+        let has_next = i + 1 < ms.paste_buff.len();
 
         // Insert characters from this paste line at the cursor
         delete_ops::insert_string(buff, &text);
@@ -397,10 +311,6 @@ pub fn paste(ms: &MarkState, buff: &mut Buffer) -> bool {
         if has_next {
             // Split at cursor and move to next line
             split_line_at_cursor(buff);
-            let next_p = pline.borrow().next_line.clone().unwrap();
-            pline = next_p;
-        } else {
-            break;
         }
     }
     true
@@ -408,34 +318,28 @@ pub fn paste(ms: &MarkState, buff: &mut Buffer) -> bool {
 
 /// Split the current line at the cursor, moving the rest to a new next-line.
 fn split_line_at_cursor(buff: &mut Buffer) {
-    let line_rc = match buff.curr_line.as_ref() {
-        Some(l) => l.clone(),
-        None => return,
-    };
+    if buff.curr_line_idx >= buff.lines.len() {
+        return;
+    }
     let pos = (buff.position as usize).saturating_sub(1);
     let rest = {
-        let mut line = line_rc.borrow_mut();
+        let line = &mut buff.lines[buff.curr_line_idx];
         let rest = line.line[pos..].to_string();
         line.line.truncate(pos);
         line.line_length = line.line.len() as i32 + 1;
         line.changed = true;
         rest
     };
-    let new_line = txtalloc();
-    {
-        let mut nl = new_line.borrow_mut();
-        nl.line = rest;
-        nl.line_length = nl.line.len() as i32 + 1;
-        nl.max_length = nl.line_length + 10;
-        nl.line_number = line_rc.borrow().line_number + 1;
-        nl.prev_line = Some(line_rc.clone());
-        nl.next_line = line_rc.borrow().next_line.clone();
-    }
-    if let Some(ref nx) = new_line.borrow().next_line.clone() {
-        nx.borrow_mut().prev_line = Some(new_line.clone());
-    }
-    line_rc.borrow_mut().next_line = Some(new_line.clone());
-    buff.curr_line = Some(new_line);
+
+    let mut nl = create_empty_line();
+    nl.line = rest;
+    nl.line_length = nl.line.len() as i32 + 1;
+    nl.max_length = nl.line_length + 10;
+    nl.line_number = buff.lines[buff.curr_line_idx].line_number + 1;
+
+    buff.lines.insert(buff.curr_line_idx + 1, nl);
+    buff.curr_line_idx += 1;
+
     buff.num_of_lines = buff.num_of_lines.saturating_add(1);
     buff.absolute_lin = buff.absolute_lin.saturating_add(1);
     buff.position = 1;
@@ -458,16 +362,23 @@ fn split_line_at_cursor(buff: &mut Buffer) {
 
 /// Snapshot of where marking started (stored by main.rs when slct is called).
 pub struct MarkAnchor {
-    pub line: Rc<RefCell<TextLine>>,
+    pub line_idx: usize,
     pub pos: usize, // 0-based byte offset
     pub abs_lin: i32,
 }
 
 impl MarkAnchor {
     pub fn from_buffer(buff: &Buffer) -> Option<Self> {
-        let line = buff.curr_line.as_ref()?.clone();
+        if buff.curr_line_idx >= buff.lines.len() {
+            return None;
+        }
+        let line_idx = buff.curr_line_idx;
         let pos = (buff.position as usize).saturating_sub(1);
         let abs_lin = buff.absolute_lin;
-        Some(MarkAnchor { line, pos, abs_lin })
+        Some(MarkAnchor {
+            line_idx,
+            pos,
+            abs_lin,
+        })
     }
 }

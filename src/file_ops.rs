@@ -152,14 +152,9 @@ pub fn write_file(state: &mut EditorState, file_name: &str) -> bool {
     let mut writer = io::BufWriter::new(file);
 
     let dos_file = buff_rc.borrow().dos_file;
-    let first = buff_rc.borrow().first_line.clone();
-    let mut current = first;
 
-    while let Some(line_rc) = current {
-        let (content, next) = {
-            let line = line_rc.borrow();
-            (line.line.clone(), line.next_line.clone())
-        };
+    for line in &buff_rc.borrow().lines {
+        let content = &line.line;
         if writer.write_all(content.as_bytes()).is_err() {
             return false;
         }
@@ -172,7 +167,6 @@ pub fn write_file(state: &mut EditorState, file_name: &str) -> bool {
                 return false;
             }
         }
-        current = next;
     }
 
     if writer.flush().is_err() {

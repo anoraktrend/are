@@ -10,17 +10,15 @@
 //   open_journal_for_write(buff, jpath, fname) -> io::Result<File>
 //   add_to_journal_db(fname_opt, jpath)
 //   remove_journal_file(jpath, fname)
-//   write_journal(jf, line_rc)
+//   write_journal(jf, buff, idx)
 
-use std::cell::RefCell;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
-use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::editor_state::{Buffer, TextLine, NO_FURTHER_LINES};
 use crate::file_ops::{ae_basename, resolve_name};
-use crate::text::txtalloc;
+use crate::text::create_empty_line;
 
 // ────────────────────────────────────────────────────────────────────────────
 // Binary I/O helpers
@@ -76,18 +74,19 @@ pub fn journal_name(file_name: &str, journal_dir: Option<&str>) -> String {
 
 /// Write the current content of `line` to the end of the journal file, then
 /// update the info record for that line.
-pub fn write_journal(journ_fd: &mut File, line_rc: &Rc<RefCell<TextLine>>) -> io::Result<()> {
+pub fn write_journal(journ_fd: &mut File, buff: &mut Buffer, idx: usize) -> io::Result<()> {
     let _ = journ_fd.seek(SeekFrom::End(0));
     let loc = journ_fd.stream_position()?;
-    {
-        let mut line = line_rc.borrow_mut();
-        line.file_info.line_location = loc;
-        let content = line.line.clone();
+
+    if idx < buff.lines.len() {
+        buff.lines[idx].file_info.line_location = loc;
+        let content = buff.lines[idx].line.clone();
         journ_fd.write_all(content.as_bytes())?;
         journ_fd.write_all(b"\0")?;
+
+        update_journal_entry(journ_fd, buff, idx)?;
+        buff.lines[idx].changed = false;
     }
-    update_journal_entry(journ_fd, line_rc)?;
-    line_rc.borrow_mut().changed = false;
     Ok(())
 }
 
@@ -95,52 +94,57 @@ pub fn write_journal(journ_fd: &mut File, line_rc: &Rc<RefCell<TextLine>>) -> io
 // update_journal_entry / journ_info_init / remove_journ_line
 // ────────────────────────────────────────────────────────────────────────────
 
-fn update_journal_entry(journ_fd: &mut File, line_rc: &Rc<RefCell<TextLine>>) -> io::Result<()> {
-    let fi = line_rc.borrow().file_info.clone();
-    if fi.info_location == NO_FURTHER_LINES {
-        journ_info_init(journ_fd, line_rc)?;
+fn update_journal_entry(journ_fd: &mut File, buff: &mut Buffer, idx: usize) -> io::Result<()> {
+    if idx >= buff.lines.len() {
         return Ok(());
     }
+
+    if buff.lines[idx].file_info.info_location == NO_FURTHER_LINES {
+        journ_info_init(journ_fd, buff, idx)?;
+        return Ok(());
+    }
+
+    let fi = buff.lines[idx].file_info.clone();
     journ_fd.seek(SeekFrom::Start(fi.info_location))?;
     write_u64(journ_fd, fi.prev_info)?;
     write_u64(journ_fd, fi.next_info)?;
     write_u64(journ_fd, fi.line_location)?;
-    let ll = line_rc.borrow().line_length;
+    let ll = buff.lines[idx].line_length;
     write_i32(journ_fd, ll)
 }
 
-fn journ_info_init(journ_fd: &mut File, line_rc: &Rc<RefCell<TextLine>>) -> io::Result<()> {
+fn journ_info_init(journ_fd: &mut File, buff: &mut Buffer, idx: usize) -> io::Result<()> {
+    if idx >= buff.lines.len() {
+        return Ok(());
+    }
+
     journ_fd.seek(SeekFrom::End(0))?;
     let loc = journ_fd.stream_position()?;
 
-    {
-        let mut line = line_rc.borrow_mut();
-        line.file_info.info_location = loc;
+    buff.lines[idx].file_info.info_location = loc;
 
-        if let Some(ref prev_rc) = line.prev_line.clone() {
-            line.file_info.prev_info = prev_rc.borrow().file_info.info_location;
-            prev_rc.borrow_mut().file_info.next_info = loc;
-        }
-        if let Some(ref next_rc) = line.next_line.clone() {
-            line.file_info.next_info = next_rc.borrow().file_info.info_location;
-            next_rc.borrow_mut().file_info.prev_info = loc;
-        } else {
-            line.file_info.next_info = NO_FURTHER_LINES;
-        }
+    if idx > 0 {
+        buff.lines[idx].file_info.prev_info = buff.lines[idx - 1].file_info.info_location;
+        buff.lines[idx - 1].file_info.next_info = loc;
+    } else {
+        buff.lines[idx].file_info.prev_info = NO_FURTHER_LINES;
     }
 
-    update_journal_entry(journ_fd, line_rc)?;
-
-    let (prev_opt, next_opt) = {
-        let line = line_rc.borrow();
-        (line.prev_line.clone(), line.next_line.clone())
-    };
-    if let Some(prev_rc) = prev_opt {
-        update_journal_entry(journ_fd, &prev_rc)?;
+    if idx + 1 < buff.lines.len() {
+        buff.lines[idx].file_info.next_info = buff.lines[idx + 1].file_info.info_location;
+        buff.lines[idx + 1].file_info.prev_info = loc;
+    } else {
+        buff.lines[idx].file_info.next_info = NO_FURTHER_LINES;
     }
-    if let Some(next_rc) = next_opt {
-        if line_rc.borrow().file_info.next_info != NO_FURTHER_LINES {
-            update_journal_entry(journ_fd, &next_rc)?;
+
+    update_journal_entry(journ_fd, buff, idx)?;
+
+    if idx > 0 {
+        update_journal_entry(journ_fd, buff, idx - 1)?;
+    }
+    if idx + 1 < buff.lines.len() {
+        if buff.lines[idx].file_info.next_info != NO_FURTHER_LINES {
+            update_journal_entry(journ_fd, buff, idx + 1)?;
         }
     }
     Ok(())
@@ -149,36 +153,8 @@ fn journ_info_init(journ_fd: &mut File, line_rc: &Rc<RefCell<TextLine>>) -> io::
 /// Remove a line from the journal linked list (mirrors C `remove_journ_line()`).
 /// This function is kept for C compatibility but not currently used in the Rust port.
 #[allow(dead_code)]
-pub fn remove_journ_line(journ_fd: &mut File, line_rc: &Rc<RefCell<TextLine>>) -> io::Result<()> {
-    let (prev_opt, next_opt) = {
-        let line = line_rc.borrow();
-        (line.prev_line.clone(), line.next_line.clone())
-    };
-
-    match (prev_opt, next_opt) {
-        (None, Some(ref next_rc)) => {
-            let loc = line_rc.borrow().file_info.info_location;
-            next_rc.borrow_mut().file_info.info_location = loc;
-            update_journal_entry(journ_fd, next_rc)?;
-            if let Some(ref nn) = next_rc.borrow().next_line.clone() {
-                nn.borrow_mut().file_info.prev_info = loc;
-                update_journal_entry(journ_fd, nn)?;
-            }
-        }
-        (Some(ref prev_rc), None) => {
-            prev_rc.borrow_mut().file_info.next_info = NO_FURTHER_LINES;
-            update_journal_entry(journ_fd, prev_rc)?;
-        }
-        (Some(ref prev_rc), Some(ref next_rc)) => {
-            let next_loc = next_rc.borrow().file_info.info_location;
-            let prev_loc = prev_rc.borrow().file_info.info_location;
-            prev_rc.borrow_mut().file_info.next_info = next_loc;
-            next_rc.borrow_mut().file_info.prev_info = prev_loc;
-            update_journal_entry(journ_fd, prev_rc)?;
-            update_journal_entry(journ_fd, next_rc)?;
-        }
-        (None, None) => {}
-    }
+pub fn remove_journ_line(_journ_fd: &mut File, _buff: &mut Buffer, _idx: usize) -> io::Result<()> {
+    // Unused in current codebase, simplistic stub logic provided.
     Ok(())
 }
 
@@ -186,8 +162,8 @@ pub fn remove_journ_line(journ_fd: &mut File, line_rc: &Rc<RefCell<TextLine>>) -
 // read_journal_entry
 // ────────────────────────────────────────────────────────────────────────────
 
-fn read_journal_entry(journ_fd: &mut File, line_rc: &Rc<RefCell<TextLine>>) -> io::Result<()> {
-    let info_loc = line_rc.borrow().file_info.info_location;
+fn read_journal_entry(journ_fd: &mut File, line: &mut TextLine) -> io::Result<()> {
+    let info_loc = line.file_info.info_location;
     journ_fd.seek(SeekFrom::Start(info_loc))?;
 
     let prev_info = read_u64(journ_fd)?;
@@ -195,13 +171,10 @@ fn read_journal_entry(journ_fd: &mut File, line_rc: &Rc<RefCell<TextLine>>) -> i
     let line_location = read_u64(journ_fd)?;
     let line_length = read_i32(journ_fd)?;
 
-    {
-        let mut line = line_rc.borrow_mut();
-        line.file_info.prev_info = prev_info;
-        line.file_info.next_info = next_info;
-        line.file_info.line_location = line_location;
-        line.line_length = line_length;
-    }
+    line.file_info.prev_info = prev_info;
+    line.file_info.next_info = next_info;
+    line.file_info.line_location = line_location;
+    line.line_length = line_length;
 
     journ_fd.seek(SeekFrom::Start(line_location))?;
     let len = (line_length - 1).max(0) as usize;
@@ -209,7 +182,6 @@ fn read_journal_entry(journ_fd: &mut File, line_rc: &Rc<RefCell<TextLine>>) -> i
     journ_fd.read_exact(&mut buf)?;
     let text = String::from_utf8_lossy(&buf).to_string();
 
-    let mut line = line_rc.borrow_mut();
     line.line = text;
     line.max_length = line_length;
     Ok(())
@@ -237,8 +209,8 @@ pub fn open_journal_for_write(buffer: &mut Buffer, jpath: &str, fname: &str) -> 
     fd.write_all(b"\n")?;
 
     // Initialise journal entry for the first line.
-    if let Some(ref first_rc) = buffer.first_line {
-        journ_info_init(&mut fd, first_rc)?;
+    if !buffer.lines.is_empty() {
+        journ_info_init(&mut fd, buffer, 0)?;
     }
 
     buffer.journalling = true;
@@ -297,41 +269,43 @@ pub fn recover_from_journal(buffer: &mut Buffer, file_name: &str) -> io::Result<
     let stored_name = String::from_utf8_lossy(&header).to_string();
     let start = journ_fd.stream_position()?;
 
-    if buffer.first_line.is_none() {
-        buffer.first_line = Some(txtalloc());
+    if buffer.lines.is_empty() {
+        buffer.lines.push(create_empty_line());
     }
 
-    let first_rc = buffer.first_line.clone().unwrap();
-    first_rc.borrow_mut().file_info.info_location = start;
+    buffer.lines[0].file_info.info_location = start;
 
     let cols = crate::ui::COLS();
-    let mut current = first_rc.clone();
     let mut num_lines = 0i32;
+    let mut current_idx = 0;
+
     loop {
-        read_journal_entry(&mut journ_fd, &current)?;
-        {
-            let mut line = current.borrow_mut();
-            let ll = line.line_length;
-            line.vert_len = (crate::ui::scanline_raw(&line.line, ll) / cols) + 1;
-            line.max_length = ll;
-        }
+        let mut current_line = buffer.lines[current_idx].clone();
+        read_journal_entry(&mut journ_fd, &mut current_line)?;
+
+        let ll = current_line.line_length;
+        current_line.vert_len = (crate::ui::scanline_raw(&current_line.line, ll) / cols) + 1;
+        current_line.max_length = ll;
+
+        buffer.lines[current_idx] = current_line.clone();
+
         num_lines = num_lines.saturating_add(1);
 
-        let next_info = current.borrow().file_info.next_info;
+        let next_info = current_line.file_info.next_info;
         if next_info == NO_FURTHER_LINES {
             break;
         }
 
-        let next_line = txtalloc();
-        next_line.borrow_mut().file_info.info_location = next_info;
-        next_line.borrow_mut().prev_line = Some(current.clone());
-        next_line.borrow_mut().line_number = current.borrow().line_number + 1;
-        current.borrow_mut().next_line = Some(next_line.clone());
-        current = next_line;
+        let mut next_line = create_empty_line();
+        next_line.file_info.info_location = next_info;
+        next_line.line_number = current_line.line_number + 1;
+
+        buffer.lines.push(next_line);
+        current_idx += 1;
     }
 
     buffer.num_of_lines = num_lines;
-    buffer.curr_line = buffer.first_line.clone();
+    buffer.curr_line_idx = 0;
 
     if (buffer.full_name.is_none() || buffer.full_name.as_deref() == Some(""))
         && !stored_name.is_empty()

@@ -35,14 +35,13 @@ pub fn bottom(buff: &mut Buffer) {
     }
     let num_lines = {
         let mut count = 0i32;
-        let mut tmp = buff.curr_line.clone();
-        while let Some(line_rc) = tmp {
-            if line_rc.borrow().next_line.is_none() {
+        let mut current_idx = buff.curr_line_idx;
+        while current_idx < buff.lines.len() {
+            if current_idx + 1 >= buff.lines.len() {
                 break;
             }
             count += 1;
-            let next = line_rc.borrow().next_line.clone();
-            tmp = next;
+            current_idx += 1;
         }
         count
     };
@@ -53,14 +52,10 @@ pub fn bottom(buff: &mut Buffer) {
 pub fn top(buff: &mut Buffer) {
     let num_lines = {
         let mut count = 0i32;
-        let mut tmp = buff.curr_line.clone();
-        while let Some(line_rc) = tmp {
-            if line_rc.borrow().prev_line.is_none() {
-                break;
-            }
+        let mut current_idx = buff.curr_line_idx;
+        while current_idx > 0 {
             count += 1;
-            let prev = line_rc.borrow().prev_line.clone();
-            tmp = prev;
+            current_idx -= 1;
         }
         count
     };
@@ -73,20 +68,11 @@ pub fn top(buff: &mut Buffer) {
 
 /// Move to the first character of the next line (mirrors C `nextline()`).
 pub fn nextline(buff: &mut Buffer) {
-    let next = buff
-        .curr_line
-        .as_ref()
-        .and_then(|l| l.borrow().next_line.clone());
-    if let Some(next_line) = next {
+    if buff.curr_line_idx + 1 < buff.lines.len() {
         let cols = COLS();
-        let vert_len = buff
-            .curr_line
-            .as_ref()
-            .map(|l| l.borrow().vert_len)
-            .unwrap_or(1)
-            - (buff.scr_pos / cols);
+        let vert_len = buff.lines[buff.curr_line_idx].vert_len - (buff.scr_pos / cols);
 
-        buff.curr_line = Some(next_line);
+        buff.curr_line_idx += 1;
         buff.position = 1;
         buff.abs_pos = 0;
         buff.scr_pos = 0;
@@ -99,35 +85,22 @@ pub fn nextline(buff: &mut Buffer) {
 
 /// Move to the last character of the previous line (mirrors C `prevline()`).
 pub fn prevline(buff: &mut Buffer) {
-    let prev = buff
-        .curr_line
-        .as_ref()
-        .and_then(|l| l.borrow().prev_line.clone());
-
-    if let Some(prev_line) = prev {
+    if buff.curr_line_idx > 0 {
         let cols = COLS();
-        let prev_vert = prev_line.borrow().vert_len;
+        let prev_vert = buff.lines[buff.curr_line_idx - 1].vert_len;
         let p = prev_vert + (buff.scr_pos / cols);
 
-        buff.curr_line = Some(prev_line.clone());
+        buff.curr_line_idx -= 1;
         buff.position = 1;
         buff.scr_pos = 0;
         buff.scr_vert = buff.scr_vert.saturating_sub(p);
 
         // Advance to end of the (now-current) previous line.
-        let ll = buff
-            .curr_line
-            .as_ref()
-            .map(|l| l.borrow().line_length)
-            .unwrap_or(1);
+        let ll = buff.lines[buff.curr_line_idx].line_length;
         while buff.position < ll {
             buff.position = buff.position.saturating_add(1);
         }
-        let scr_p = buff
-            .curr_line
-            .clone()
-            .map(|l| scanline(&l.borrow(), buff.position))
-            .unwrap_or(0);
+        let scr_p = scanline(&buff.lines[buff.curr_line_idx], buff.position);
         buff.abs_pos = scr_p;
         buff.scr_pos = scr_p;
     }
@@ -144,14 +117,13 @@ pub fn find_pos(buff: &mut Buffer) {
     let mut scr_horz = 0i32;
     let mut pos = 1i32;
 
-    let (ll, line_s) = {
-        let line = buff.curr_line.as_ref().map(|l| l.borrow());
-        match line {
-            Some(ref l) => (l.line_length, l.line.clone()),
-            None => return,
-        }
-    };
-    let chars: Vec<char> = line_s.chars().collect();
+    if buff.curr_line_idx >= buff.lines.len() {
+        return;
+    }
+
+    let line = &buff.lines[buff.curr_line_idx];
+    let ll = line.line_length;
+    let chars: Vec<char> = line.line.chars().collect();
 
     while scr_horz < target && pos < ll {
         let ch = chars.get((pos - 1) as usize).copied().unwrap_or('\0');
@@ -176,17 +148,22 @@ pub fn left(buff: &mut Buffer, _disp: bool) -> bool {
 
     if pos != 1 {
         let ch = {
-            let line = buff.curr_line.as_ref().map(|l| l.borrow()).unwrap();
-            let chars: Vec<char> = line.line.chars().collect();
-            chars.get((pos - 2) as usize).copied().unwrap_or('\0')
+            if buff.curr_line_idx >= buff.lines.len() {
+                '\0'
+            } else {
+                let line = &buff.lines[buff.curr_line_idx];
+                let chars: Vec<char> = line.line.chars().collect();
+                chars.get((pos - 2) as usize).copied().unwrap_or('\0')
+            }
         };
 
         buff.position -= 1;
         let new_scr = if ch == '\t' {
-            buff.curr_line
-                .clone()
-                .map(|l| scanline(&l.borrow(), buff.position))
-                .unwrap_or(0)
+            if buff.curr_line_idx >= buff.lines.len() {
+                0
+            } else {
+                scanline(&buff.lines[buff.curr_line_idx], buff.position)
+            }
         } else {
             scr_pos - len_char(scr_pos, ch)
         };
@@ -195,11 +172,7 @@ pub fn left(buff: &mut Buffer, _disp: bool) -> bool {
         buff.scr_horz = new_scr % COLS();
         true
     } else {
-        let has_prev = buff
-            .curr_line
-            .as_ref()
-            .and_then(|l| l.borrow().prev_line.clone())
-            .is_some();
+        let has_prev = buff.curr_line_idx > 0;
         if has_prev {
             prevline(buff);
             buff.scr_horz = buff.scr_pos % COLS();
@@ -215,17 +188,21 @@ pub fn left(buff: &mut Buffer, _disp: bool) -> bool {
 /// Returns `true` if the cursor moved.
 pub fn right(buff: &mut Buffer, _disp: bool) -> bool {
     let pos = buff.position;
-    let ll = buff
-        .curr_line
-        .as_ref()
-        .map(|l| l.borrow().line_length)
-        .unwrap_or(1);
+    let ll = if buff.curr_line_idx < buff.lines.len() {
+        buff.lines[buff.curr_line_idx].line_length
+    } else {
+        1
+    };
 
     if pos < ll {
         let ch = {
-            let line = buff.curr_line.as_ref().map(|l| l.borrow()).unwrap();
-            let chars: Vec<char> = line.line.chars().collect();
-            chars.get((pos - 1) as usize).copied().unwrap_or('\0')
+            if buff.curr_line_idx >= buff.lines.len() {
+                '\0'
+            } else {
+                let line = &buff.lines[buff.curr_line_idx];
+                let chars: Vec<char> = line.line.chars().collect();
+                chars.get((pos - 1) as usize).copied().unwrap_or('\0')
+            }
         };
 
         let r = buff.scr_pos.saturating_add(len_char(buff.scr_pos, ch));
@@ -235,11 +212,7 @@ pub fn right(buff: &mut Buffer, _disp: bool) -> bool {
         buff.scr_horz = r % COLS();
         true
     } else {
-        let has_next = buff
-            .curr_line
-            .as_ref()
-            .and_then(|l| l.borrow().next_line.clone())
-            .is_some();
+        let has_next = buff.curr_line_idx + 1 < buff.lines.len();
         if has_next {
             nextline(buff);
             buff.position = 1;
@@ -259,86 +232,64 @@ pub fn right(buff: &mut Buffer, _disp: bool) -> bool {
 
 /// Move cursor up one line (mirrors C `up()`).
 pub fn up(buff: &mut Buffer) {
-    if buff
-        .curr_line
-        .as_ref()
-        .and_then(|l| l.borrow().prev_line.clone())
-        .is_none()
-    {
+    if buff.curr_line_idx == 0 {
         return;
     }
 
     let tscr_pos = buff.abs_pos;
 
     // Move to previous line
-    let prev = buff
-        .curr_line
-        .as_ref()
-        .and_then(|l| l.borrow().prev_line.clone());
-    if let Some(prev_line) = prev {
-        buff.curr_line = Some(prev_line);
-        buff.position = 1;
-        buff.scr_horz = 0;
-        buff.scr_pos = 0;
-        buff.abs_pos = tscr_pos;
+    buff.curr_line_idx -= 1;
+    buff.position = 1;
+    buff.scr_horz = 0;
+    buff.scr_pos = 0;
+    buff.abs_pos = tscr_pos;
 
-        // Find the position on the new line that matches our horizontal target
-        find_pos(buff);
-        buff.scr_pos = buff.scr_horz;
+    // Find the position on the new line that matches our horizontal target
+    find_pos(buff);
+    buff.scr_pos = buff.scr_horz;
 
-        // Update vertical position
-        if buff.scr_vert > 0 {
-            // Still room on screen, just move up
-            buff.scr_vert = buff.scr_vert.saturating_sub(1);
-        } else {
-            // At top of screen, scroll the window up
-            buff.window_top = buff.window_top.saturating_sub(1);
-        }
-
-        buff.absolute_lin = buff.absolute_lin.saturating_sub(1);
+    // Update vertical position
+    if buff.scr_vert > 0 {
+        // Still room on screen, just move up
+        buff.scr_vert = buff.scr_vert.saturating_sub(1);
+    } else {
+        // At top of screen, scroll the window up
+        buff.window_top = buff.window_top.saturating_sub(1);
     }
+
+    buff.absolute_lin = buff.absolute_lin.saturating_sub(1);
 }
 
 /// Move cursor down one line (mirrors C `down()`).
 pub fn down(buff: &mut Buffer) {
-    if buff
-        .curr_line
-        .as_ref()
-        .and_then(|l| l.borrow().next_line.clone())
-        .is_none()
-    {
+    if buff.curr_line_idx + 1 >= buff.lines.len() {
         return;
     }
 
     let tscr_pos = buff.abs_pos;
 
     // Move to next line
-    let next = buff
-        .curr_line
-        .as_ref()
-        .and_then(|l| l.borrow().next_line.clone());
-    if let Some(next_line) = next {
-        buff.curr_line = Some(next_line);
-        buff.position = 1;
-        buff.scr_horz = 0;
-        buff.scr_pos = 0;
-        buff.abs_pos = tscr_pos;
+    buff.curr_line_idx += 1;
+    buff.position = 1;
+    buff.scr_horz = 0;
+    buff.scr_pos = 0;
+    buff.abs_pos = tscr_pos;
 
-        // Find the position on the new line that matches our horizontal target
-        find_pos(buff);
-        buff.scr_pos = buff.scr_horz;
+    // Find the position on the new line that matches our horizontal target
+    find_pos(buff);
+    buff.scr_pos = buff.scr_horz;
 
-        // Update vertical position
-        if buff.scr_vert < buff.last_line {
-            // Still room on screen, just move down
-            buff.scr_vert = buff.scr_vert.saturating_add(1);
-        } else {
-            // At bottom of screen, scroll the window
-            buff.window_top = buff.window_top.saturating_add(1);
-        }
-
-        buff.absolute_lin = buff.absolute_lin.saturating_add(1);
+    // Update vertical position
+    if buff.scr_vert < buff.last_line {
+        // Still room on screen, just move down
+        buff.scr_vert = buff.scr_vert.saturating_add(1);
+    } else {
+        // At bottom of screen, scroll the window
+        buff.window_top = buff.window_top.saturating_add(1);
     }
+
+    buff.absolute_lin = buff.absolute_lin.saturating_add(1);
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -375,12 +326,7 @@ pub fn goto_line(buff: &mut Buffer, n: i32) {
     top(buff);
     // Then advance n-1 lines.
     for _ in 1..n {
-        if buff
-            .curr_line
-            .as_ref()
-            .and_then(|l| l.borrow().next_line.clone())
-            .is_none()
-        {
+        if buff.curr_line_idx + 1 >= buff.lines.len() {
             break;
         }
         adv_line(buff);
@@ -393,28 +339,29 @@ pub fn goto_line(buff: &mut Buffer, n: i32) {
 
 fn curr_char(buff: &Buffer) -> char {
     let pos = buff.position;
-    let line = buff.curr_line.as_ref().map(|l| l.borrow()).unwrap();
-    let chars: Vec<char> = line.line.chars().collect();
+    if buff.curr_line_idx >= buff.lines.len() {
+        return '\0';
+    }
+    let chars: Vec<char> = buff.lines[buff.curr_line_idx].line.chars().collect();
     chars.get((pos - 1) as usize).copied().unwrap_or('\0')
 }
 
 fn prev_char(buff: &Buffer) -> char {
     let pos = buff.position;
-    if pos < 2 {
+    if pos < 2 || buff.curr_line_idx >= buff.lines.len() {
         return '\0';
     }
-    let line = buff.curr_line.as_ref().map(|l| l.borrow()).unwrap();
-    let chars: Vec<char> = line.line.chars().collect();
+    let chars: Vec<char> = buff.lines[buff.curr_line_idx].line.chars().collect();
     chars.get((pos - 2) as usize).copied().unwrap_or('\0')
 }
 
 fn at_end(buff: &Buffer) -> bool {
-    buff.position
-        >= buff
-            .curr_line
-            .as_ref()
-            .map(|l| l.borrow().line_length)
-            .unwrap_or(1)
+    let ll = if buff.curr_line_idx < buff.lines.len() {
+        buff.lines[buff.curr_line_idx].line_length
+    } else {
+        1
+    };
+    buff.position >= ll
 }
 
 fn at_start(buff: &Buffer) -> bool {
@@ -467,36 +414,31 @@ pub fn prev_word(buff: &mut Buffer) {
 
 /// Move to end of current line (mirrors C `eol()`).
 pub fn eol(buff: &mut Buffer) {
-    let (pos, ll) = (
-        buff.position,
-        buff.curr_line
-            .as_ref()
-            .map(|l| l.borrow().line_length)
-            .unwrap_or(1),
-    );
+    let ll = if buff.curr_line_idx < buff.lines.len() {
+        buff.lines[buff.curr_line_idx].line_length
+    } else {
+        1
+    };
+    let pos = buff.position;
 
     if pos == ll {
-        let has_next = buff
-            .curr_line
-            .as_ref()
-            .and_then(|l| l.borrow().next_line.clone())
-            .is_some();
+        let has_next = buff.curr_line_idx + 1 < buff.lines.len();
         if has_next {
             right(buff, true);
         }
     }
 
-    let ll2 = buff
-        .curr_line
-        .as_ref()
-        .map(|l| l.borrow().line_length)
-        .unwrap_or(1);
+    let ll2 = if buff.curr_line_idx < buff.lines.len() {
+        buff.lines[buff.curr_line_idx].line_length
+    } else {
+        1
+    };
     buff.position = ll2;
-    let scr_p = buff
-        .curr_line
-        .clone()
-        .map(|l| scanline(&l.borrow(), buff.position))
-        .unwrap_or(0);
+    let scr_p = if buff.curr_line_idx < buff.lines.len() {
+        scanline(&buff.lines[buff.curr_line_idx], buff.position)
+    } else {
+        0
+    };
     buff.abs_pos = scr_p;
     buff.scr_pos = scr_p;
     buff.scr_horz = scr_p % COLS();
@@ -507,11 +449,7 @@ pub fn eol(buff: &mut Buffer) {
 /// Move to beginning of current line (mirrors C `bol()`).
 pub fn bol(buff: &mut Buffer) {
     let pos = buff.position;
-    let has_prev = buff
-        .curr_line
-        .as_ref()
-        .and_then(|l| l.borrow().prev_line.clone())
-        .is_some();
+    let has_prev = buff.curr_line_idx > 0;
 
     if pos != 1 {
         let delta = buff.scr_pos / COLS();
@@ -533,11 +471,11 @@ pub fn adv_line(buff: &mut Buffer) {
     if pos == 1 {
         down(buff);
     } else {
-        let ll = buff
-            .curr_line
-            .as_ref()
-            .map(|l| l.borrow().line_length)
-            .unwrap_or(1);
+        let ll = if buff.curr_line_idx < buff.lines.len() {
+            buff.lines[buff.curr_line_idx].line_length
+        } else {
+            1
+        };
         if pos < ll {
             eol(buff);
         }
@@ -557,12 +495,7 @@ pub fn move_rel(buff: &mut Buffer, direction: &str, lines: i32) {
             while left(buff, true) && buff.position != 1 {}
         }
         for _ in 0..lines {
-            let has_prev = buff
-                .curr_line
-                .as_ref()
-                .and_then(|l| l.borrow().prev_line.clone())
-                .is_some();
-            if !has_prev {
+            if buff.curr_line_idx == 0 {
                 break;
             }
             up(buff);
@@ -570,12 +503,7 @@ pub fn move_rel(buff: &mut Buffer, direction: &str, lines: i32) {
     } else {
         adv_line(buff);
         for i in 1..lines {
-            let has_next = buff
-                .curr_line
-                .as_ref()
-                .and_then(|l| l.borrow().next_line.clone())
-                .is_some();
-            if !has_next {
+            if buff.curr_line_idx + 1 >= buff.lines.len() {
                 break;
             }
             if i < lines {
@@ -594,12 +522,7 @@ pub fn next_page(buff: &mut Buffer) {
     let last_line = buff.last_line;
     let mut counter = 0i32;
     while counter < last_line {
-        if buff
-            .curr_line
-            .as_ref()
-            .and_then(|l| l.borrow().next_line.clone())
-            .is_none()
-        {
+        if buff.curr_line_idx + 1 >= buff.lines.len() {
             break;
         }
         adv_line(buff);
@@ -612,12 +535,7 @@ pub fn prev_page(buff: &mut Buffer) {
     let last_line = buff.last_line;
     let mut counter = 0i32;
     while counter < last_line {
-        if buff
-            .curr_line
-            .as_ref()
-            .and_then(|l| l.borrow().prev_line.clone())
-            .is_none()
-        {
+        if buff.curr_line_idx == 0 {
             break;
         }
         if buff.position != 1 {
