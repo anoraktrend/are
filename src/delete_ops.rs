@@ -31,11 +31,16 @@ pub fn backspace(buff: &mut Buffer) -> Option<char> {
             }
         };
         buff.position -= 1;
-        buff.scr_horz  = (buff.scr_horz - 1).max(0);
-        buff.scr_pos   = buff.scr_horz;
-        buff.abs_pos   = buff.scr_pos;
+        buff.scr_horz = (buff.scr_horz - 1).max(0);
+        buff.scr_pos = buff.scr_horz;
+        buff.abs_pos = buff.scr_pos;
         Some(ch)
-    } else if buff.curr_line.as_ref().and_then(|l| l.borrow().prev_line.clone()).is_some() {
+    } else if buff
+        .curr_line
+        .as_ref()
+        .and_then(|l| l.borrow().prev_line.clone())
+        .is_some()
+    {
         // At the beginning of the line: merge with previous line (the C
         // `delete` function when position == 1 joins curr_line onto prev).
         join_with_prev_line(buff)
@@ -68,11 +73,16 @@ pub fn delete_forward(buff: &mut Buffer) -> Option<char> {
         if buff.position > new_len {
             buff.position = new_len.max(1);
             buff.scr_horz = (buff.position - 1).max(0);
-            buff.scr_pos  = buff.scr_horz;
-            buff.abs_pos  = buff.scr_pos;
+            buff.scr_pos = buff.scr_horz;
+            buff.abs_pos = buff.scr_pos;
         }
         Some(ch)
-    } else if buff.curr_line.as_ref().and_then(|l| l.borrow().next_line.clone()).is_some() {
+    } else if buff
+        .curr_line
+        .as_ref()
+        .and_then(|l| l.borrow().next_line.clone())
+        .is_some()
+    {
         // At the end of the line: merge next line into this one
         join_with_next_line(buff)
     } else {
@@ -128,10 +138,10 @@ fn join_with_prev_line(buff: &mut Buffer) -> Option<char> {
     buff.changed = true;
     buff.num_of_lines -= 1;
     // Cursor lands at the old end of the previous line
-    buff.position  = prev_len;
-    buff.scr_horz  = (prev_len - 1).max(0);
-    buff.scr_pos   = buff.scr_horz;
-    buff.abs_pos   = buff.scr_pos;
+    buff.position = prev_len;
+    buff.scr_horz = (prev_len - 1).max(0);
+    buff.scr_pos = buff.scr_horz;
+    buff.abs_pos = buff.scr_pos;
     if buff.scr_vert > 0 {
         buff.scr_vert -= 1;
     } else if buff.window_top > 1 {
@@ -156,16 +166,22 @@ pub fn del_word(buff: &mut Buffer) -> String {
     let pos = (buff.position as usize).saturating_sub(1); // 0-indexed start
     let chars: Vec<char> = line.line.chars().collect();
     let len = chars.len();
-    if pos >= len { return String::new(); }
+    if pos >= len {
+        return String::new();
+    }
 
     // Scan forward: skip non-whitespace, then skip whitespace
     let mut end = pos;
-    while end < len && chars[end] != ' ' && chars[end] != '\t' { end += 1; }
-    while end < len && (chars[end] == ' ' || chars[end] == '\t') { end += 1; }
+    while end < len && chars[end] != ' ' && chars[end] != '\t' {
+        end += 1;
+    }
+    while end < len && (chars[end] == ' ' || chars[end] == '\t') {
+        end += 1;
+    }
 
     // Calculate byte offsets from char offsets
     let byte_start: usize = chars[..pos].iter().collect::<String>().len();
-    let byte_end:   usize = chars[..end].iter().collect::<String>().len();
+    let byte_end: usize = chars[..end].iter().collect::<String>().len();
     let deleted: String = line.line[byte_start..byte_end].to_string();
     line.line.replace_range(byte_start..byte_end, "");
     line.line_length = line.line.len() as i32 + 1;
@@ -180,6 +196,7 @@ pub fn del_word(buff: &mut Buffer) -> String {
 
 /// Delete from cursor to end of line, leaving the line truncated at the cursor.
 /// Returns the deleted text.
+#[allow(dead_code)]
 pub fn del_to_eol(buff: &mut Buffer) -> String {
     let line_rc = match buff.curr_line.as_ref() {
         Some(l) => l.clone(),
@@ -187,7 +204,9 @@ pub fn del_to_eol(buff: &mut Buffer) -> String {
     };
     let mut line = line_rc.borrow_mut();
     let pos = (buff.position as usize).saturating_sub(1);
-    if pos >= line.line.len() { return String::new(); }
+    if pos >= line.line.len() {
+        return String::new();
+    }
     let deleted = line.line[pos..].to_string();
     line.line.truncate(pos);
     line.line_length = line.line.len() as i32 + 1;
@@ -238,11 +257,11 @@ pub fn del_line(buff: &mut Buffer) -> String {
             line_rc.borrow_mut().line_length = 1;
         }
     }
-    buff.position  = 1;
-    buff.scr_horz  = 0;
-    buff.scr_pos   = 0;
-    buff.abs_pos   = 0;
-    buff.changed   = true;
+    buff.position = 1;
+    buff.scr_horz = 0;
+    buff.scr_pos = 0;
+    buff.abs_pos = 0;
+    buff.changed = true;
     buff.num_of_lines -= 1;
     deleted
 }
@@ -272,8 +291,8 @@ pub fn insert_string(buff: &mut Buffer, text: &str) {
     let n = text.chars().count() as i32;
     buff.position += n;
     buff.scr_horz += n;
-    buff.scr_pos   = buff.scr_horz;
-    buff.abs_pos   = buff.scr_pos;
+    buff.scr_pos = buff.scr_horz;
+    buff.abs_pos = buff.scr_pos;
 }
 
 /// Re-insert a single character (used by undel_char).

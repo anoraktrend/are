@@ -1,8 +1,8 @@
 // Editor state and core data structures for aee
 // Aligned with include/aee.h struct bufr, struct text, etc.
 
-use std::rc::Rc;
 use std::cell::RefCell;
+use std::rc::Rc;
 
 // Main buffer name
 pub const MAIN_BUFFER_NAME: &str = "main";
@@ -149,8 +149,15 @@ pub struct TabStop {
 // ──────────────────────────────────────────────────────────────────────────────
 #[derive(Clone)]
 pub enum LastAction {
-    InsertChar { line: Rc<RefCell<TextLine>>, pos: usize },
-    DeleteChar { line: Rc<RefCell<TextLine>>, pos: usize, ch: char },
+    InsertChar {
+        line: Rc<RefCell<TextLine>>,
+        pos: usize,
+    },
+    DeleteChar {
+        line: Rc<RefCell<TextLine>>,
+        pos: usize,
+        ch: char,
+    },
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -164,116 +171,142 @@ pub enum LastAction {
 pub struct EditorState {
     // ── Convenience references (also exist inside curr_buff) ─────────────────
     /// Mirrors `first_line` global – synced from `curr_buff` each iteration.
-    pub first_line:  Option<Rc<RefCell<TextLine>>>,
+    pub first_line: Option<Rc<RefCell<TextLine>>>,
     /// Mirrors `curr_line` global – synced from `curr_buff` each iteration.
-    pub curr_line:   Option<Rc<RefCell<TextLine>>>,
+    pub curr_line: Option<Rc<RefCell<TextLine>>>,
     /// Cut/paste buffer (mirrors C `paste_buff`).
-    #[allow(dead_code)] pub paste_buff:  Option<Rc<RefCell<TextLine>>>,
+    #[allow(dead_code)]
+    pub paste_buff: Option<Rc<RefCell<TextLine>>>,
     /// Deleted-line buffer (mirrors C `dlt_line`).
-    #[allow(dead_code)] pub dlt_line:    Option<Rc<RefCell<TextLine>>>,
+    #[allow(dead_code)]
+    pub dlt_line: Option<Rc<RefCell<TextLine>>>,
     /// First paste-line pointer (mirrors C `fpste_line`).
-    #[allow(dead_code)] pub fpste_line:  Option<Rc<RefCell<TextLine>>>,
+    #[allow(dead_code)]
+    pub fpste_line: Option<Rc<RefCell<TextLine>>>,
     /// Current paste-line pointer (mirrors C `cpste_line`).
-    #[allow(dead_code)] pub cpste_line:  Option<Rc<RefCell<TextLine>>>,
+    #[allow(dead_code)]
+    pub cpste_line: Option<Rc<RefCell<TextLine>>>,
     /// Paste temp pointer (mirrors C `pste_tmp`).
-    #[allow(dead_code)] pub pste_tmp:    Option<Rc<RefCell<TextLine>>>,
+    #[allow(dead_code)]
+    pub pste_tmp: Option<Rc<RefCell<TextLine>>>,
     /// Temp line pointer (mirrors C `tmp_line`).
-    #[allow(dead_code)] pub tmp_line:    Option<Rc<RefCell<TextLine>>>,
+    #[allow(dead_code)]
+    pub tmp_line: Option<Rc<RefCell<TextLine>>>,
     /// Search anchor line (mirrors C `srch_line`).
-    #[allow(dead_code)] pub srch_line:   Option<Rc<RefCell<TextLine>>>,
+    #[allow(dead_code)]
+    pub srch_line: Option<Rc<RefCell<TextLine>>>,
 
     // ── Buffer list ───────────────────────────────────────────────────────────
-    pub first_buff:  Option<Rc<RefCell<Buffer>>>,
-    pub curr_buff:   Option<Rc<RefCell<Buffer>>>,
+    pub first_buff: Option<Rc<RefCell<Buffer>>>,
+    pub curr_buff: Option<Rc<RefCell<Buffer>>>,
 
     // ── Boolean flags (mirrors C globals) ────────────────────────────────────
-    pub windows:          bool,
-    pub mark_text:        bool,
-    pub journ_on:         bool,
-    pub input_file:       bool,
+    pub windows: bool,
+    pub mark_text: bool,
+    pub journ_on: bool,
+    pub input_file: bool,
     /// Main edit-mode flag; the event loop runs while this is `true`.
-    pub edit:             bool,
+    pub edit: bool,
     /// Gold-key (PF1) state – not yet implemented in terminal port.
-    #[allow(dead_code)] pub gold:             bool,
-    pub recover:          bool,
-    pub case_sen:         bool,
+    #[allow(dead_code)]
+    pub gold: bool,
+    pub recover: bool,
+    pub case_sen: bool,
     /// True when buffer has been modified this session (mirrors C `change`).
-    pub change:           bool,
+    pub change: bool,
     /// Literal (non-regex) search mode.
-    pub literal:          bool,
-    pub forward:          bool,
-    pub restricted:       bool,
+    pub literal: bool,
+    pub forward: bool,
+    pub restricted: bool,
     pub change_dir_allowed: bool,
-    pub text_only:        bool,
-    pub expand:           bool,
-    pub nohighlight:      bool,
-    pub echo_flag:        bool,
-    pub info_window:      bool,
+    pub text_only: bool,
+    pub expand: bool,
+    pub nohighlight: bool,
+    pub echo_flag: bool,
+    pub info_window: bool,
     /// Set when a file was given on the command line (used in startup path).
-    pub recv_file:        bool,
-    pub overstrike:       bool,
-    pub indent:           bool,
-    pub auto_format:      bool,
+    pub recv_file: bool,
+    pub overstrike: bool,
+    pub indent: bool,
+    pub auto_format: bool,
     /// Set when the current paragraph has been auto-formatted.
-    #[allow(dead_code)] pub formatted:        bool,
-    pub observ_margins:   bool,
-    pub right_justify:    bool,
-    pub status_line:      bool,
+    #[allow(dead_code)]
+    pub formatted: bool,
+    pub observ_margins: bool,
+    pub right_justify: bool,
+    pub status_line: bool,
     /// Modes-menu visible flag (XAE / not yet ported).
-    #[allow(dead_code)] pub ee_mode_menu:     bool,
+    #[allow(dead_code)]
+    pub ee_mode_menu: bool,
 
     // ── XAE window geometry (not used in terminal build) ─────────────────────
-    #[allow(dead_code)] pub win_height: i32,
-    #[allow(dead_code)] pub win_width:  i32,
+    #[allow(dead_code)]
+    pub win_height: i32,
+    #[allow(dead_code)]
+    pub win_width: i32,
 
     // ── Editing settings ──────────────────────────────────────────────────────
-    pub left_margin:     i32,
-    pub right_margin:    i32,
-    pub tab_spacing:     i32,
+    pub left_margin: i32,
+    pub right_margin: i32,
+    pub tab_spacing: i32,
     pub info_win_height: i32,
     /// 8-bit (high-byte) input mode (XAE / not yet ported).
-    #[allow(dead_code)] pub eightbit:        bool,
+    #[allow(dead_code)]
+    pub eightbit: bool,
 
     // ── Search / replace strings ──────────────────────────────────────────────
-    pub srch_str:    Option<String>,
+    pub srch_str: Option<String>,
     /// Previous search string (for undo-search; mirrors C `u_srch_str`).
-    #[allow(dead_code)] pub u_srch_str:  Option<String>,
+    #[allow(dead_code)]
+    pub u_srch_str: Option<String>,
     /// Previous replace target (mirrors C `old_string`).
-    #[allow(dead_code)] pub old_string:  Option<String>,
+    #[allow(dead_code)]
+    pub old_string: Option<String>,
     /// Previous replace target undo (mirrors C `u_old_string`).
-    #[allow(dead_code)] pub u_old_string: Option<String>,
+    #[allow(dead_code)]
+    pub u_old_string: Option<String>,
     /// Replace-with string (mirrors C `new_string`).
-    #[allow(dead_code)] pub new_string:  Option<String>,
+    #[allow(dead_code)]
+    pub new_string: Option<String>,
 
     // ── Miscellaneous global state ─────────────────────────────────────────────
-    pub files:         Vec<String>,
+    pub files: Vec<String>,
     pub start_at_line: Option<String>,
     /// Shell command used to print the buffer (mirrors C `print_command`).
-    #[allow(dead_code)] pub print_command: String,
-    pub journal_dir:   String,
+    #[allow(dead_code)]
+    pub print_command: String,
+    pub journal_dir: String,
 
     pub lines_moved: i32,
     /// Length of the last deleted word (mirrors C `d_wrd_len`).
-    pub d_wrd_len:   i32,
+    pub d_wrd_len: i32,
     /// General-purpose integer (mirrors C `value`).
-    #[allow(dead_code)] pub value:       i32,
+    #[allow(dead_code)]
+    pub value: i32,
     /// Temporary cursor position (mirrors C `tmp_pos`).
-    #[allow(dead_code)] pub tmp_pos:     i32,
+    #[allow(dead_code)]
+    pub tmp_pos: i32,
     /// Temporary vertical position (mirrors C `tmp_vert`).
-    #[allow(dead_code)] pub tmp_vert:    i32,
+    #[allow(dead_code)]
+    pub tmp_vert: i32,
     /// Replacement-string length accumulator (mirrors C `repl_length`).
-    #[allow(dead_code)] pub repl_length: i32,
+    #[allow(dead_code)]
+    pub repl_length: i32,
     /// Paste position (mirrors C `pst_pos`).
-    #[allow(dead_code)] pub pst_pos:     i32,
+    #[allow(dead_code)]
+    pub pst_pos: i32,
     /// Gold-key repeat count (mirrors C `gold_count`).
-    #[allow(dead_code)] pub gold_count:  i32,
+    #[allow(dead_code)]
+    pub gold_count: i32,
     pub num_of_bufs: i32,
     /// Line-wrap column (mirrors C `line_wrap`).
-    #[allow(dead_code)] pub line_wrap:   i32,
+    #[allow(dead_code)]
+    pub line_wrap: i32,
     /// Info-window display type (mirrors C `info_type`).
-    #[allow(dead_code)] pub info_type:   i32,
+    #[allow(dead_code)]
+    pub info_type: i32,
     pub local_lines: i32,
-    pub local_cols:  i32,
+    pub local_cols: i32,
 
     /// Deleted character (mirrors `d_char`).
     pub d_char: char,
@@ -282,15 +315,18 @@ pub struct EditorState {
     /// Deleted line (mirrors `d_line`).
     pub d_line: Option<String>,
 
-    pub tab_stops:     Vec<i32>,
+    pub tab_stops: Vec<i32>,
     /// Linked-list of tab-stop columns built from `tab_spacing` during init.
     pub tab_stop_list: Option<Box<TabStop>>,
     /// Current input string being assembled (mirrors C `in_string`).
-    #[allow(dead_code)] pub in_string:    String,
+    #[allow(dead_code)]
+    pub in_string: String,
     /// Startup command list (mirrors C `commands`).
-    #[allow(dead_code)] pub commands:     Vec<String>,
+    #[allow(dead_code)]
+    pub commands: Vec<String>,
     /// Startup init-string list (mirrors C `init_strings`).
-    #[allow(dead_code)] pub init_strings: Vec<String>,
+    #[allow(dead_code)]
+    pub init_strings: Vec<String>,
 
     // ── LSP client ────────────────────────────────────────────────────────────
     pub lsp_client: Option<crate::lsp::LspClient>,
@@ -302,83 +338,83 @@ pub struct EditorState {
 impl EditorState {
     pub fn new() -> Self {
         EditorState {
-            first_line:   None,
-            curr_line:    None,
-            paste_buff:   None,
-            dlt_line:     None,
-            fpste_line:   None,
-            cpste_line:   None,
-            pste_tmp:     None,
-            tmp_line:     None,
-            srch_line:    None,
-            first_buff:   None,
-            curr_buff:    None,
-            windows:      true,
-            mark_text:    false,
-            journ_on:     true,
-            input_file:   false,
-            edit:         true,
-            gold:         false,
-            recover:      false,
-            case_sen:     false,
-            change:       false,
-            literal:      false,
-            forward:      true,
-            restricted:   false,
+            first_line: None,
+            curr_line: None,
+            paste_buff: None,
+            dlt_line: None,
+            fpste_line: None,
+            cpste_line: None,
+            pste_tmp: None,
+            tmp_line: None,
+            srch_line: None,
+            first_buff: None,
+            curr_buff: None,
+            windows: true,
+            mark_text: false,
+            journ_on: true,
+            input_file: false,
+            edit: true,
+            gold: false,
+            recover: false,
+            case_sen: false,
+            change: false,
+            literal: false,
+            forward: true,
+            restricted: false,
             change_dir_allowed: true,
-            text_only:    true,
-            expand:       false,
-            nohighlight:  false,
-            echo_flag:    true,
-            info_window:  true,
-            recv_file:    false,
-            overstrike:   false,
-            indent:       false,
-            auto_format:  false,
-            formatted:    false,
+            text_only: true,
+            expand: false,
+            nohighlight: false,
+            echo_flag: true,
+            info_window: true,
+            recv_file: false,
+            overstrike: false,
+            indent: false,
+            auto_format: false,
+            formatted: false,
             observ_margins: false,
-            right_justify:  false,
-            status_line:  false,
+            right_justify: false,
+            status_line: false,
             ee_mode_menu: false,
-            win_height:   0,
-            win_width:    0,
-            left_margin:  0,
+            win_height: 0,
+            win_width: 0,
+            left_margin: 0,
             right_margin: 0,
-            tab_spacing:  8,
-            info_win_height: 6,  // INFO_WIN_HEIGHT_DEF
-            eightbit:     false,
-            srch_str:     None,
-            u_srch_str:   None,
-            old_string:   None,
+            tab_spacing: 8,
+            info_win_height: 6, // INFO_WIN_HEIGHT_DEF
+            eightbit: false,
+            srch_str: None,
+            u_srch_str: None,
+            old_string: None,
             u_old_string: None,
-            new_string:   None,
-            files:        Vec::new(),
+            new_string: None,
+            files: Vec::new(),
             start_at_line: None,
             print_command: "lp".to_string(),
-            journal_dir:  String::new(),
-            lines_moved:  0,
-            d_wrd_len:    0,
-            value:        0,
-            tmp_pos:      0,
-            tmp_vert:     0,
-            repl_length:  0,
-            pst_pos:      0,
-            gold_count:   0,
-            num_of_bufs:  0,
-            line_wrap:    0,
-            info_type:    1, // CONTROL_KEYS
-            local_lines:  0,
-            local_cols:   0,
-            d_char:       '\0',
-            d_word:       None,
-            d_line:       None,
-            tab_stops:     Vec::new(),
+            journal_dir: String::new(),
+            lines_moved: 0,
+            d_wrd_len: 0,
+            value: 0,
+            tmp_pos: 0,
+            tmp_vert: 0,
+            repl_length: 0,
+            pst_pos: 0,
+            gold_count: 0,
+            num_of_bufs: 0,
+            line_wrap: 0,
+            info_type: 1, // CONTROL_KEYS
+            local_lines: 0,
+            local_cols: 0,
+            d_char: '\0',
+            d_word: None,
+            d_line: None,
+            tab_stops: Vec::new(),
             tab_stop_list: None,
-            in_string:    String::new(),
-            commands:     Vec::new(),
+            in_string: String::new(),
+            commands: Vec::new(),
             init_strings: Vec::new(),
-            lsp_client:   None,
-            last_action:  None,
+            lsp_client: None,
+            last_action: None,
         }
     }
 
@@ -407,16 +443,28 @@ impl EditorState {
                         b'i' => self.info_window = false,
                         b'n' => self.nohighlight = true,
                         b'h' => {
-                            let num_buff = if buff.len() > 1 { &buff[1..] } else {
+                            let num_buff = if buff.len() > 1 {
+                                &buff[1..]
+                            } else {
                                 count += 1;
-                                if count < args.len() { &args[count] } else { "" }
+                                if count < args.len() {
+                                    &args[count]
+                                } else {
+                                    ""
+                                }
                             };
                             self.win_height = num_buff.parse().unwrap_or(0);
                         }
                         b'w' => {
-                            let num_buff = if buff.len() > 1 { &buff[1..] } else {
+                            let num_buff = if buff.len() > 1 {
+                                &buff[1..]
+                            } else {
                                 count += 1;
-                                if count < args.len() { &args[count] } else { "" }
+                                if count < args.len() {
+                                    &args[count]
+                                } else {
+                                    ""
+                                }
                             };
                             self.win_width = num_buff.parse().unwrap_or(0);
                         }
@@ -440,33 +488,33 @@ impl EditorState {
 
         // Create first buffer (mirrors buf_alloc + initialisation in aee.c main())
         self.first_buff = Some(crate::buffer::buf_alloc());
-        self.curr_buff  = self.first_buff.clone();
+        self.curr_buff = self.first_buff.clone();
 
         if let Some(ref buff_rc) = self.first_buff {
             let mut buff = buff_rc.borrow_mut();
-            buff.name        = MAIN_BUFFER_NAME.to_string();
-            buff.first_line  = Some(crate::text::txtalloc());
-            buff.curr_line   = buff.first_line.clone();
+            buff.name = MAIN_BUFFER_NAME.to_string();
+            buff.first_line = Some(crate::text::txtalloc());
+            buff.curr_line = buff.first_line.clone();
             buff.main_buffer = true;
             buff.edit_buffer = true;
 
             if let Some(ref line_rc) = buff.curr_line.clone() {
                 let mut line = line_rc.borrow_mut();
-                line.line        = String::new();
-                line.line_length = 1;   // includes null slot, like C
-                line.max_length  = 10;
+                line.line = String::new();
+                line.line_length = 1; // includes null slot, like C
+                line.max_length = 10;
                 line.line_number = 1;
-                line.vert_len    = 1;
+                line.vert_len = 1;
             }
 
             buff.num_of_lines = 1;
             buff.absolute_lin = 1;
-            buff.position     = 1;
-            buff.abs_pos      = 0;
-            buff.scr_pos      = 0;
-            buff.scr_vert     = 0;
-            buff.scr_horz     = 0;
-            
+            buff.position = 1;
+            buff.abs_pos = 0;
+            buff.scr_pos = 0;
+            buff.scr_vert = 0;
+            buff.scr_horz = 0;
+
             // Initialize window geometry from terminal size
             let (cols, rows) = crate::ui::get_terminal_size();
             buff.lines = rows as i32 - 1;
@@ -474,9 +522,9 @@ impl EditorState {
             buff.last_col = cols as i32 - 1;
         }
 
-        self.num_of_bufs    = 1;
-        self.forward        = true;
-        self.windows        = true;
+        self.num_of_bufs = 1;
+        self.forward = true;
+        self.windows = true;
 
         // Build the tab-stop linked list from tab_spacing (mirrors set_tabs() in aee.c).
         // Columns are multiples of tab_spacing up to column 160.
@@ -484,7 +532,10 @@ impl EditorState {
         let mut list: Option<Box<TabStop>> = None;
         let mut col = (160 / spacing) * spacing;
         while col > 0 {
-            list = Some(Box::new(TabStop { column: col, next_stop: list }));
+            list = Some(Box::new(TabStop {
+                column: col,
+                next_stop: list,
+            }));
             col -= spacing;
         }
         self.tab_stop_list = list;
@@ -519,12 +570,14 @@ impl EditorState {
         }
 
         let contents = match crate::file_ops::get_file(file_name) {
-            Ok(c)  => c,
+            Ok(c) => c,
             Err(_) => return,
         };
 
         let lines: Vec<String> = contents.lines().map(|s| s.to_string()).collect();
-        if lines.is_empty() { return; }
+        if lines.is_empty() {
+            return;
+        }
 
         if let Some(ref buff_rc) = self.first_buff {
             let mut buff = buff_rc.borrow_mut();
@@ -532,9 +585,9 @@ impl EditorState {
             // Overwrite the initial blank line.
             if let Some(ref line_rc) = buff.first_line {
                 let mut line = line_rc.borrow_mut();
-                line.line        = lines[0].clone();
+                line.line = lines[0].clone();
                 line.line_length = line.line.len() as i32 + 1;
-                line.max_length  = line.line_length + 10;
+                line.max_length = line.line_length + 10;
                 line.line_number = 1;
             }
 
@@ -544,11 +597,11 @@ impl EditorState {
                 let new_line = crate::text::txtalloc();
                 {
                     let mut nl = new_line.borrow_mut();
-                    nl.line        = l.clone();
+                    nl.line = l.clone();
                     nl.line_length = nl.line.len() as i32 + 1;
-                    nl.max_length  = nl.line_length + 10;
+                    nl.max_length = nl.line_length + 10;
                     nl.line_number = (i + 1) as i32;
-                    nl.prev_line   = prev.clone();
+                    nl.prev_line = prev.clone();
                 }
                 if let Some(ref p) = prev {
                     p.borrow_mut().next_line = Some(new_line.clone());
@@ -558,7 +611,7 @@ impl EditorState {
 
             buff.num_of_lines = lines.len() as i32;
             buff.absolute_lin = 1;
-            buff.changed      = false;
+            buff.changed = false;
 
             // Detect DOS line endings (CR/LF) – mirrors get_line() logic
             if contents.contains("\r\n") {
@@ -572,7 +625,8 @@ impl EditorState {
 
             // Cache file-stat info so save_file can detect external changes.
             if let Ok(meta) = std::fs::metadata(file_name) {
-                buff.fileinfo_mtime = meta.modified()
+                buff.fileinfo_mtime = meta
+                    .modified()
                     .ok()
                     .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
                     .map(|d| d.as_secs())

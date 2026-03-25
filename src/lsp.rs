@@ -23,10 +23,28 @@ use tokio::sync::mpsc;
 // ── Semantic token standard types (LSP spec §3.16) ──────────────────────────
 
 pub const TOKEN_TYPES: &[&str] = &[
-    "namespace", "type", "class", "enum", "interface", "struct", "typeParameter",
-    "parameter", "variable", "property", "enumMember", "event", "function",
-    "method", "macro", "keyword", "modifier", "comment", "string", "number",
-    "regexp", "operator",
+    "namespace",
+    "type",
+    "class",
+    "enum",
+    "interface",
+    "struct",
+    "typeParameter",
+    "parameter",
+    "variable",
+    "property",
+    "enumMember",
+    "event",
+    "function",
+    "method",
+    "macro",
+    "keyword",
+    "modifier",
+    "comment",
+    "string",
+    "number",
+    "regexp",
+    "operator",
 ];
 
 // ── Decoded semantic token ───────────────────────────────────────────────────
@@ -61,7 +79,13 @@ pub fn decode_semantic_tokens(data: &[u64]) -> Vec<SemanticToken> {
             start_char += delta_start;
         }
 
-        tokens.push(SemanticToken { line, start_char, length, token_type, token_modifiers });
+        tokens.push(SemanticToken {
+            line,
+            start_char,
+            length,
+            token_type,
+            token_modifiers,
+        });
     }
     tokens
 }
@@ -158,9 +182,15 @@ impl LspClient {
                 let msg = if json.get("id").is_some() {
                     let id = json["id"].as_i64().unwrap_or(-1);
                     if json.get("error").is_some() {
-                        LspMessage::Error { id, error: json["error"].clone() }
+                        LspMessage::Error {
+                            id,
+                            error: json["error"].clone(),
+                        }
                     } else {
-                        LspMessage::Response { id, result: json["result"].clone() }
+                        LspMessage::Response {
+                            id,
+                            result: json["result"].clone(),
+                        }
                     }
                 } else if let Some(method) = json["method"].as_str() {
                     LspMessage::Notification {
@@ -213,7 +243,11 @@ impl LspClient {
     }
 
     /// Send a request and return its id.
-    async fn send_request(&mut self, method: &str, params: Value) -> Result<i64, Box<dyn std::error::Error>> {
+    async fn send_request(
+        &mut self,
+        method: &str,
+        params: Value,
+    ) -> Result<i64, Box<dyn std::error::Error>> {
         let id = self.next_id();
         let request = json!({
             "jsonrpc": "2.0",
@@ -226,7 +260,11 @@ impl LspClient {
     }
 
     /// Send a notification (no id, no response expected).
-    async fn send_notification(&mut self, method: &str, params: Value) -> Result<(), Box<dyn std::error::Error>> {
+    async fn send_notification(
+        &mut self,
+        method: &str,
+        params: Value,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let notification = json!({
             "jsonrpc": "2.0",
             "method": method,
@@ -258,7 +296,8 @@ impl LspClient {
     fn handle_notification(&mut self, method: &str, params: Value) {
         if method == "textDocument/publishDiagnostics" {
             if let Some(uri) = params["uri"].as_str() {
-                self.diagnostics_back.insert(uri.to_string(), params["diagnostics"].clone());
+                self.diagnostics_back
+                    .insert(uri.to_string(), params["diagnostics"].clone());
                 self.has_pending_updates = true;
             }
         }
@@ -278,11 +317,8 @@ impl LspClient {
             if tokio::time::Instant::now() >= deadline {
                 return None;
             }
-            match tokio::time::timeout(
-                tokio::time::Duration::from_millis(100),
-                self.rx.recv(),
-            )
-            .await
+            match tokio::time::timeout(tokio::time::Duration::from_millis(100), self.rx.recv())
+                .await
             {
                 Ok(Some(LspMessage::Response { id: rid, result })) if rid == id => {
                     return Some(result);
@@ -448,10 +484,7 @@ impl LspClient {
 
         if let Some(result) = self.wait_for_response(id).await {
             if let Some(data_arr) = result["data"].as_array() {
-                let data: Vec<u64> = data_arr
-                    .iter()
-                    .filter_map(|v| v.as_u64())
-                    .collect();
+                let data: Vec<u64> = data_arr.iter().filter_map(|v| v.as_u64()).collect();
                 let tokens = decode_semantic_tokens(&data);
                 self.semantic_tokens_back.insert(uri.to_string(), tokens);
                 self.has_pending_updates = true;
@@ -476,7 +509,10 @@ impl LspClient {
             return false;
         }
         std::mem::swap(&mut self.diagnostics_front, &mut self.diagnostics_back);
-        std::mem::swap(&mut self.semantic_tokens_front, &mut self.semantic_tokens_back);
+        std::mem::swap(
+            &mut self.semantic_tokens_front,
+            &mut self.semantic_tokens_back,
+        );
         // Clear the back buffers after swap so they're ready for new data
         self.diagnostics_back.clear();
         self.semantic_tokens_back.clear();

@@ -2,20 +2,20 @@
 // Converted from the original C implementation
 #![allow(clippy::explicit_auto_deref)]
 
-mod editor_state;
-mod text;
 mod buffer;
-mod ui;
-mod file_ops;
-mod highlighting;
-mod lsp;
-mod motion;
 mod delete_ops;
-mod search;
+mod editor_state;
+mod file_ops;
 mod format;
-mod mark;
-mod journal;
 mod help;
+mod highlighting;
+mod journal;
+mod lsp;
+mod mark;
+mod motion;
+mod search;
+mod text;
+mod ui;
 mod windows;
 
 use std::env;

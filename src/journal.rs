@@ -12,10 +12,10 @@
 //   remove_journal_file(jpath, fname)
 //   write_journal(jf, line_rc)
 
+use std::cell::RefCell;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::rc::Rc;
-use std::cell::RefCell;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::editor_state::{Buffer, TextLine, NO_FURTHER_LINES};
@@ -29,8 +29,12 @@ use crate::text::txtalloc;
 const U64_SIZE: usize = std::mem::size_of::<u64>();
 const I32_SIZE: usize = std::mem::size_of::<i32>();
 
-fn write_u64(f: &mut File, v: u64) -> io::Result<()> { f.write_all(&v.to_ne_bytes()) }
-fn write_i32(f: &mut File, v: i32) -> io::Result<()> { f.write_all(&v.to_ne_bytes()) }
+fn write_u64(f: &mut File, v: u64) -> io::Result<()> {
+    f.write_all(&v.to_ne_bytes())
+}
+fn write_i32(f: &mut File, v: i32) -> io::Result<()> {
+    f.write_all(&v.to_ne_bytes())
+}
 fn read_u64(f: &mut File) -> io::Result<u64> {
     let mut buf = [0u8; U64_SIZE];
     f.read_exact(&mut buf)?;
@@ -72,10 +76,7 @@ pub fn journal_name(file_name: &str, journal_dir: Option<&str>) -> String {
 
 /// Write the current content of `line` to the end of the journal file, then
 /// update the info record for that line.
-pub fn write_journal(
-    journ_fd: &mut File,
-    line_rc: &Rc<RefCell<TextLine>>,
-) -> io::Result<()> {
+pub fn write_journal(journ_fd: &mut File, line_rc: &Rc<RefCell<TextLine>>) -> io::Result<()> {
     let _ = journ_fd.seek(SeekFrom::End(0));
     let loc = journ_fd.stream_position()?;
     {
@@ -94,10 +95,7 @@ pub fn write_journal(
 // update_journal_entry / journ_info_init / remove_journ_line
 // ────────────────────────────────────────────────────────────────────────────
 
-fn update_journal_entry(
-    journ_fd: &mut File,
-    line_rc: &Rc<RefCell<TextLine>>,
-) -> io::Result<()> {
+fn update_journal_entry(journ_fd: &mut File, line_rc: &Rc<RefCell<TextLine>>) -> io::Result<()> {
     let fi = line_rc.borrow().file_info.clone();
     if fi.info_location == NO_FURTHER_LINES {
         journ_info_init(journ_fd, line_rc)?;
@@ -111,10 +109,7 @@ fn update_journal_entry(
     write_i32(journ_fd, ll)
 }
 
-fn journ_info_init(
-    journ_fd: &mut File,
-    line_rc: &Rc<RefCell<TextLine>>,
-) -> io::Result<()> {
+fn journ_info_init(journ_fd: &mut File, line_rc: &Rc<RefCell<TextLine>>) -> io::Result<()> {
     journ_fd.seek(SeekFrom::End(0))?;
     let loc = journ_fd.stream_position()?;
 
@@ -140,7 +135,9 @@ fn journ_info_init(
         let line = line_rc.borrow();
         (line.prev_line.clone(), line.next_line.clone())
     };
-    if let Some(prev_rc) = prev_opt { update_journal_entry(journ_fd, &prev_rc)?; }
+    if let Some(prev_rc) = prev_opt {
+        update_journal_entry(journ_fd, &prev_rc)?;
+    }
     if let Some(next_rc) = next_opt {
         if line_rc.borrow().file_info.next_info != NO_FURTHER_LINES {
             update_journal_entry(journ_fd, &next_rc)?;
@@ -152,10 +149,7 @@ fn journ_info_init(
 /// Remove a line from the journal linked list (mirrors C `remove_journ_line()`).
 /// This function is kept for C compatibility but not currently used in the Rust port.
 #[allow(dead_code)]
-pub fn remove_journ_line(
-    journ_fd: &mut File,
-    line_rc: &Rc<RefCell<TextLine>>,
-) -> io::Result<()> {
+pub fn remove_journ_line(journ_fd: &mut File, line_rc: &Rc<RefCell<TextLine>>) -> io::Result<()> {
     let (prev_opt, next_opt) = {
         let line = line_rc.borrow();
         (line.prev_line.clone(), line.next_line.clone())
@@ -192,24 +186,21 @@ pub fn remove_journ_line(
 // read_journal_entry
 // ────────────────────────────────────────────────────────────────────────────
 
-fn read_journal_entry(
-    journ_fd: &mut File,
-    line_rc: &Rc<RefCell<TextLine>>,
-) -> io::Result<()> {
+fn read_journal_entry(journ_fd: &mut File, line_rc: &Rc<RefCell<TextLine>>) -> io::Result<()> {
     let info_loc = line_rc.borrow().file_info.info_location;
     journ_fd.seek(SeekFrom::Start(info_loc))?;
 
-    let prev_info     = read_u64(journ_fd)?;
-    let next_info     = read_u64(journ_fd)?;
+    let prev_info = read_u64(journ_fd)?;
+    let next_info = read_u64(journ_fd)?;
     let line_location = read_u64(journ_fd)?;
-    let line_length   = read_i32(journ_fd)?;
+    let line_length = read_i32(journ_fd)?;
 
     {
         let mut line = line_rc.borrow_mut();
-        line.file_info.prev_info     = prev_info;
-        line.file_info.next_info     = next_info;
+        line.file_info.prev_info = prev_info;
+        line.file_info.next_info = next_info;
         line.file_info.line_location = line_location;
-        line.line_length             = line_length;
+        line.line_length = line_length;
     }
 
     journ_fd.seek(SeekFrom::Start(line_location))?;
@@ -219,8 +210,8 @@ fn read_journal_entry(
     let text = String::from_utf8_lossy(&buf).to_string();
 
     let mut line = line_rc.borrow_mut();
-    line.line        = text;
-    line.max_length  = line_length;
+    line.line = text;
+    line.max_length = line_length;
     Ok(())
 }
 
@@ -232,11 +223,7 @@ fn read_journal_entry(
 /// Create (or truncate) the journal file at `jpath` and write the file-name
 /// header, then initialise the info record for the first line.
 /// Returns the open `File` handle.
-pub fn open_journal_for_write(
-    buffer: &mut Buffer,
-    jpath: &str,
-    fname: &str,
-) -> io::Result<File> {
+pub fn open_journal_for_write(buffer: &mut Buffer, jpath: &str, fname: &str) -> io::Result<File> {
     let mut fd = OpenOptions::new()
         .write(true)
         .create(true)
@@ -254,7 +241,7 @@ pub fn open_journal_for_write(
         journ_info_init(&mut fd, first_rc)?;
     }
 
-    buffer.journalling  = true;
+    buffer.journalling = true;
     buffer.journal_file = Some(jpath.to_string());
     Ok(fd)
 }
@@ -268,7 +255,7 @@ pub fn open_journal_for_write(
 pub fn add_to_journal_db(fname: Option<&str>, jpath: &str) -> io::Result<()> {
     let mut list = read_journal_db_inner()?;
     list.push(JournalDbEntry {
-        file_name:    fname.map(|s| s.to_string()),
+        file_name: fname.map(|s| s.to_string()),
         journal_name: jpath.to_string(),
     });
     write_db_file_inner(&list)
@@ -294,18 +281,17 @@ pub fn remove_journal_file(jpath: &str, _fname: &str) -> io::Result<()> {
 // ────────────────────────────────────────────────────────────────────────────
 
 /// Read the edit buffer back from the journal file at `file_name`.
-pub fn recover_from_journal(
-    buffer: &mut Buffer,
-    file_name: &str,
-) -> io::Result<()> {
+pub fn recover_from_journal(buffer: &mut Buffer, file_name: &str) -> io::Result<()> {
     let mut journ_fd = File::open(file_name)?;
 
     // Skip header (up to first '\n').
     let mut header = Vec::new();
-    let mut byte   = [0u8; 1];
+    let mut byte = [0u8; 1];
     loop {
         journ_fd.read_exact(&mut byte)?;
-        if byte[0] == b'\n' { break; }
+        if byte[0] == b'\n' {
+            break;
+        }
         header.push(byte[0]);
     }
     let stored_name = String::from_utf8_lossy(&header).to_string();
@@ -319,37 +305,40 @@ pub fn recover_from_journal(
     first_rc.borrow_mut().file_info.info_location = start;
 
     let cols = crate::ui::COLS();
-    let mut current   = first_rc.clone();
+    let mut current = first_rc.clone();
     let mut num_lines = 0i32;
     loop {
         read_journal_entry(&mut journ_fd, &current)?;
         {
             let mut line = current.borrow_mut();
             let ll = line.line_length;
-            line.vert_len   = (crate::ui::scanline_raw(&line.line, ll) / cols) + 1;
+            line.vert_len = (crate::ui::scanline_raw(&line.line, ll) / cols) + 1;
             line.max_length = ll;
         }
         num_lines = num_lines.saturating_add(1);
 
         let next_info = current.borrow().file_info.next_info;
-        if next_info == NO_FURTHER_LINES { break; }
+        if next_info == NO_FURTHER_LINES {
+            break;
+        }
 
         let next_line = txtalloc();
         next_line.borrow_mut().file_info.info_location = next_info;
-        next_line.borrow_mut().prev_line               = Some(current.clone());
-        next_line.borrow_mut().line_number             = current.borrow().line_number + 1;
-        current.borrow_mut().next_line                 = Some(next_line.clone());
+        next_line.borrow_mut().prev_line = Some(current.clone());
+        next_line.borrow_mut().line_number = current.borrow().line_number + 1;
+        current.borrow_mut().next_line = Some(next_line.clone());
         current = next_line;
     }
 
     buffer.num_of_lines = num_lines;
-    buffer.curr_line    = buffer.first_line.clone();
+    buffer.curr_line = buffer.first_line.clone();
 
     if (buffer.full_name.is_none() || buffer.full_name.as_deref() == Some(""))
-        && !stored_name.is_empty() {
-            buffer.full_name = Some(stored_name.clone());
-            buffer.file_name = Some(ae_basename(&stored_name));
-        }
+        && !stored_name.is_empty()
+    {
+        buffer.full_name = Some(stored_name.clone());
+        buffer.file_name = Some(ae_basename(&stored_name));
+    }
     Ok(())
 }
 
@@ -357,8 +346,12 @@ pub fn recover_from_journal(
 // Journal database (~/.aeeinfo)
 // ────────────────────────────────────────────────────────────────────────────
 
-fn db_file_path()   -> String { resolve_name("~/.aeeinfo") }
-fn lock_file_path() -> String { resolve_name("~/.aeeinfo.L") }
+fn db_file_path() -> String {
+    resolve_name("~/.aeeinfo")
+}
+fn lock_file_path() -> String {
+    resolve_name("~/.aeeinfo.L")
+}
 
 fn lock_journal_fd() -> bool {
     OpenOptions::new()
@@ -368,11 +361,13 @@ fn lock_journal_fd() -> bool {
         .is_ok()
 }
 
-fn unlock_journal_fd() { let _ = fs::remove_file(lock_file_path()); }
+fn unlock_journal_fd() {
+    let _ = fs::remove_file(lock_file_path());
+}
 
 #[derive(Debug, Clone)]
 struct JournalDbEntry {
-    file_name:    Option<String>,
+    file_name: Option<String>,
     journal_name: String,
 }
 
@@ -380,13 +375,17 @@ fn read_journal_db_inner() -> io::Result<Vec<JournalDbEntry>> {
     // Best-effort lock; proceed even if we can't lock.
     let _locked = lock_journal_fd();
     let content = match fs::read_to_string(db_file_path()) {
-        Ok(c)  => c,
+        Ok(c) => c,
         Err(e) if e.kind() == io::ErrorKind::NotFound => {
-            if _locked { unlock_journal_fd(); }
+            if _locked {
+                unlock_journal_fd();
+            }
             return Ok(Vec::new());
         }
         Err(e) => {
-            if _locked { unlock_journal_fd(); }
+            if _locked {
+                unlock_journal_fd();
+            }
             return Err(e);
         }
     };
@@ -394,15 +393,24 @@ fn read_journal_db_inner() -> io::Result<Vec<JournalDbEntry>> {
     let mut list = Vec::new();
     for line in content.lines() {
         let mut parts = line.split_whitespace();
-        let file_len:  usize = parts.next().and_then(|v| v.parse().ok()).unwrap_or(0);
+        let file_len: usize = parts.next().and_then(|v| v.parse().ok()).unwrap_or(0);
         let _journ_len: usize = parts.next().and_then(|v| v.parse().ok()).unwrap_or(0);
-        let file_name  = if file_len > 0 { parts.next().map(|s| s.to_string()) } else { None };
+        let file_name = if file_len > 0 {
+            parts.next().map(|s| s.to_string())
+        } else {
+            None
+        };
         let journ_name = parts.next().unwrap_or("").to_string();
         if !journ_name.is_empty() {
-            list.push(JournalDbEntry { file_name, journal_name: journ_name });
+            list.push(JournalDbEntry {
+                file_name,
+                journal_name: journ_name,
+            });
         }
     }
-    if _locked { unlock_journal_fd(); }
+    if _locked {
+        unlock_journal_fd();
+    }
     Ok(list)
 }
 
@@ -414,13 +422,22 @@ fn write_db_file_inner(list: &[JournalDbEntry]) -> io::Result<()> {
         if let Some(ref f) = entry.file_name {
             out.push_str(&format!(
                 "{} {} {} {}\n",
-                flen, entry.journal_name.len(), f, entry.journal_name
+                flen,
+                entry.journal_name.len(),
+                f,
+                entry.journal_name
             ));
         } else {
-            out.push_str(&format!("0 {} {}\n", entry.journal_name.len(), entry.journal_name));
+            out.push_str(&format!(
+                "0 {} {}\n",
+                entry.journal_name.len(),
+                entry.journal_name
+            ));
         }
     }
     fs::write(db_file_path(), out)?;
-    if _locked { unlock_journal_fd(); }
+    if _locked {
+        unlock_journal_fd();
+    }
     Ok(())
 }

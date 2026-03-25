@@ -4,18 +4,19 @@
 //! mirrors the editor's main text list.  Copy/cut populate it; paste
 //! inserts it at the current cursor position.
 
-use std::rc::Rc;
 use std::cell::RefCell;
+use std::rc::Rc;
 
+use crate::delete_ops;
 use crate::editor_state::{Buffer, TextLine};
 use crate::text::txtalloc;
-use crate::delete_ops;
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Mark-mode flags (mirrors C enum values)
 // ──────────────────────────────────────────────────────────────────────────────
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[allow(dead_code)]
 pub enum MarkMode {
     Inactive,
     Mark,
@@ -79,7 +80,9 @@ pub fn slct(ms: &mut MarkState, buff: &Buffer, mode: MarkMode) {
         return;
     }
     ms.mode = mode;
-    let max_len = buff.curr_line.as_ref()
+    let max_len = buff
+        .curr_line
+        .as_ref()
         .map(|l| l.borrow().max_length as usize)
         .unwrap_or(64);
     let new_line = alloc_paste_line(max_len);
@@ -110,7 +113,10 @@ pub fn copy(ms: &mut MarkState) -> bool {
     }
     let fpste = match ms.fpste_line.take() {
         Some(f) => f,
-        None => { unmark_text(ms); return false; }
+        None => {
+            unmark_text(ms);
+            return false;
+        }
     };
 
     match ms.mode {
@@ -203,11 +209,8 @@ pub fn mark_collect(
     // Determine direction: anchor is start, cursor is end (or vice-versa).
     // Walk from anchor_line toward cursor_line collecting text.
 
-    let first_node = collect_partial_line(
-        &anchor_line,
-        anchor_pos,
-        anchor_line.borrow().line.len(),
-    );
+    let first_node =
+        collect_partial_line(&anchor_line, anchor_pos, anchor_line.borrow().line.len());
     let mut tail = first_node.clone();
 
     // Are they the same line?
@@ -216,7 +219,11 @@ pub fn mark_collect(
             let l = anchor_line.borrow();
             let s = anchor_pos.min(l.line.len());
             let e = cursor_pos.min(l.line.len());
-            if s <= e { l.line[s..e].to_string() } else { l.line[e..s].to_string() }
+            if s <= e {
+                l.line[s..e].to_string()
+            } else {
+                l.line[e..s].to_string()
+            }
         };
         let single = txtalloc();
         {
@@ -232,12 +239,18 @@ pub fn mark_collect(
     let mut cur = anchor_line.borrow().next_line.clone();
     while let Some(line_rc) = cur {
         let is_last = Rc::ptr_eq(&line_rc, &cursor_line_rc);
-        let end_pos = if is_last { cursor_pos } else { line_rc.borrow().line.len() };
+        let end_pos = if is_last {
+            cursor_pos
+        } else {
+            line_rc.borrow().line.len()
+        };
         let node = collect_partial_line(&line_rc, 0, end_pos);
         node.borrow_mut().prev_line = Some(tail.clone());
         tail.borrow_mut().next_line = Some(node.clone());
         tail = node;
-        if is_last { break; }
+        if is_last {
+            break;
+        }
         cur = line_rc.borrow().next_line.clone();
     }
 
@@ -255,7 +268,9 @@ pub fn cut(
     anchor_line: Rc<RefCell<TextLine>>,
     anchor_pos: usize,
 ) -> bool {
-    if ms.mode == MarkMode::Inactive { return false; }
+    if ms.mode == MarkMode::Inactive {
+        return false;
+    }
 
     // Collect into select buffer
     if let Some(collected) = mark_collect(buff, anchor_line.clone(), anchor_pos) {
@@ -274,7 +289,11 @@ pub fn cut(
         // Single line: just delete the range
         let start = anchor_pos;
         let end = (buff.position as usize).saturating_sub(1);
-        let (s, e) = if start <= end { (start, end) } else { (end, start) };
+        let (s, e) = if start <= end {
+            (start, end)
+        } else {
+            (end, start)
+        };
         {
             let mut line = cursor_line_rc.borrow_mut();
             if e <= line.line.len() {
@@ -285,9 +304,9 @@ pub fn cut(
         }
         buff.position = (s + 1) as i32;
         buff.scr_horz = s as i32;
-        buff.scr_pos  = buff.scr_horz;
-        buff.abs_pos  = buff.scr_pos;
-        buff.changed  = true;
+        buff.scr_pos = buff.scr_horz;
+        buff.abs_pos = buff.scr_pos;
+        buff.changed = true;
     } else {
         // Multiple lines: truncate anchor line, remove intermediate lines,
         // truncate cursor line, then join anchor and cursor lines.
@@ -341,9 +360,9 @@ pub fn cut(
         buff.curr_line = Some(anchor_line.clone());
         buff.position = (anchor_pos + 1) as i32;
         buff.scr_horz = anchor_pos as i32;
-        buff.scr_pos  = buff.scr_horz;
-        buff.abs_pos  = buff.scr_pos;
-        buff.changed  = true;
+        buff.scr_pos = buff.scr_horz;
+        buff.abs_pos = buff.scr_pos;
+        buff.changed = true;
         buff.num_of_lines -= 1;
     }
 
@@ -362,7 +381,9 @@ pub fn paste(ms: &MarkState, buff: &mut Buffer) -> bool {
         Some(p) => p.clone(),
         None => return false,
     };
-    if ms.mode != MarkMode::Inactive { return false; }
+    if ms.mode != MarkMode::Inactive {
+        return false;
+    }
 
     // Walk the paste buffer chain, inserting each line
     let mut pline = paste_first;
@@ -387,7 +408,10 @@ pub fn paste(ms: &MarkState, buff: &mut Buffer) -> bool {
 
 /// Split the current line at the cursor, moving the rest to a new next-line.
 fn split_line_at_cursor(buff: &mut Buffer) {
-    let line_rc = match buff.curr_line.as_ref() { Some(l) => l.clone(), None => return };
+    let line_rc = match buff.curr_line.as_ref() {
+        Some(l) => l.clone(),
+        None => return,
+    };
     let pos = (buff.position as usize).saturating_sub(1);
     let rest = {
         let mut line = line_rc.borrow_mut();
@@ -416,12 +440,15 @@ fn split_line_at_cursor(buff: &mut Buffer) {
     buff.absolute_lin = buff.absolute_lin.saturating_add(1);
     buff.position = 1;
     buff.scr_horz = 0;
-    buff.scr_pos  = 0;
-    buff.abs_pos  = 0;
+    buff.scr_pos = 0;
+    buff.abs_pos = 0;
     let (_, height) = crate::ui::get_terminal_size();
     let text_height = (height as i32) - 1;
-    if buff.scr_vert < text_height - 1 { buff.scr_vert = buff.scr_vert.saturating_add(1); }
-    else { buff.window_top = buff.window_top.saturating_add(1); }
+    if buff.scr_vert < text_height - 1 {
+        buff.scr_vert = buff.scr_vert.saturating_add(1);
+    } else {
+        buff.window_top = buff.window_top.saturating_add(1);
+    }
     buff.changed = true;
 }
 

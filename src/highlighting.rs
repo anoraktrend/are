@@ -7,25 +7,23 @@ lazy_static! {
     static ref C_KEYWORDS: HashSet<&'static str> = {
         let mut set = HashSet::new();
         let keywords = [
-            "auto", "break", "case", "char", "const", "continue", "default", "do",
-            "double", "else", "enum", "extern", "float", "for", "goto", "if",
-            "int", "long", "register", "return", "short", "signed", "sizeof", "static",
-            "struct", "switch", "typedef", "union", "unsigned", "void", "volatile", "while",
+            "auto", "break", "case", "char", "const", "continue", "default", "do", "double",
+            "else", "enum", "extern", "float", "for", "goto", "if", "int", "long", "register",
+            "return", "short", "signed", "sizeof", "static", "struct", "switch", "typedef",
+            "union", "unsigned", "void", "volatile", "while",
         ];
         for kw in &keywords {
             set.insert(*kw);
         }
         set
     };
-
     static ref RUST_KEYWORDS: HashSet<&'static str> = {
         let mut set = HashSet::new();
         let keywords = [
-            "as", "async", "await", "break", "const", "continue", "crate", "dyn",
-            "else", "enum", "extern", "false", "fn", "for", "if", "impl", "in",
-            "let", "loop", "match", "mod", "move", "mut", "pub", "ref", "return",
-            "self", "Self", "static", "struct", "super", "trait", "true", "type",
-            "union", "unsafe", "use", "where", "while",
+            "as", "async", "await", "break", "const", "continue", "crate", "dyn", "else", "enum",
+            "extern", "false", "fn", "for", "if", "impl", "in", "let", "loop", "match", "mod",
+            "move", "mut", "pub", "ref", "return", "self", "Self", "static", "struct", "super",
+            "trait", "true", "type", "union", "unsafe", "use", "where", "while",
         ];
         for kw in &keywords {
             set.insert(*kw);
@@ -76,16 +74,14 @@ pub fn lang_from_extension(path: &str) -> &'static str {
 /// Map an LSP token-type name (from the server's legend) to a `TokenKind`.
 pub fn lsp_token_type_to_kind(type_name: &str) -> TokenKind {
     match type_name {
-        "keyword" | "modifier"                          => TokenKind::Keyword,
-        "comment"                                       => TokenKind::Comment,
-        "string"                                        => TokenKind::StringLiteral,
-        "number"                                        => TokenKind::Number,
-        "operator"                                      => TokenKind::Operator,
-        "namespace" | "type" | "class" | "enum"
-        | "interface" | "struct" | "typeParameter"
-        | "enumMember" | "event" | "function"
-        | "method" | "macro"                            => TokenKind::Identifier,
-        _                                               => TokenKind::Identifier,
+        "keyword" | "modifier" => TokenKind::Keyword,
+        "comment" => TokenKind::Comment,
+        "string" => TokenKind::StringLiteral,
+        "number" => TokenKind::Number,
+        "operator" => TokenKind::Operator,
+        "namespace" | "type" | "class" | "enum" | "interface" | "struct" | "typeParameter"
+        | "enumMember" | "event" | "function" | "method" | "macro" => TokenKind::Identifier,
+        _ => TokenKind::Identifier,
     }
 }
 
@@ -110,7 +106,7 @@ pub fn highlight_line_lsp(
 
     for tok in tokens {
         let start = tok.start_char as usize;
-        let end   = (start + tok.length as usize).min(char_len);
+        let end = (start + tok.length as usize).min(char_len);
 
         // Gap before this token
         if start > cursor {
@@ -212,9 +208,14 @@ pub fn highlight_line_with_state<'a>(
             let start = i;
             i += 1;
             while i < len {
-                if bytes[i] == b'\\' { i += 2; }
-                else if bytes[i] == b'"' { i += 1; break; }
-                else { i += 1; }
+                if bytes[i] == b'\\' {
+                    i += 2;
+                } else if bytes[i] == b'"' {
+                    i += 1;
+                    break;
+                } else {
+                    i += 1;
+                }
             }
             push_span!(start, i, TokenKind::StringLiteral);
             continue;
@@ -226,9 +227,14 @@ pub fn highlight_line_with_state<'a>(
             let start = i;
             i += 1;
             while i < len {
-                if bytes[i] == b'\\' { i += 2; }
-                else if bytes[i] == b'\'' { i += 1; break; }
-                else { i += 1; }
+                if bytes[i] == b'\\' {
+                    i += 2;
+                } else if bytes[i] == b'\'' {
+                    i += 1;
+                    break;
+                } else {
+                    i += 1;
+                }
             }
             push_span!(start, i, TokenKind::StringLiteral);
             continue;
@@ -237,7 +243,9 @@ pub fn highlight_line_with_state<'a>(
         // ── Number  ───────────────────────────────────────────────────────────
         if bytes[i].is_ascii_digit() {
             let start = i;
-            while i < len && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'.' || bytes[i] == b'_') {
+            while i < len
+                && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'.' || bytes[i] == b'_')
+            {
                 i += 1;
             }
             push_span!(start, i, TokenKind::Number);
@@ -251,7 +259,11 @@ pub fn highlight_line_with_state<'a>(
                 i += 1;
             }
             let word = &line[start..i];
-            let kind = if is_keyword(word, lang) { TokenKind::Keyword } else { TokenKind::Identifier };
+            let kind = if is_keyword(word, lang) {
+                TokenKind::Keyword
+            } else {
+                TokenKind::Identifier
+            };
             push_span!(start, i, kind);
             continue;
         }
@@ -259,7 +271,9 @@ pub fn highlight_line_with_state<'a>(
         // ── Whitespace  ───────────────────────────────────────────────────────
         if bytes[i].is_ascii_whitespace() {
             let start = i;
-            while i < len && bytes[i].is_ascii_whitespace() { i += 1; }
+            while i < len && bytes[i].is_ascii_whitespace() {
+                i += 1;
+            }
             push_span!(start, i, TokenKind::Whitespace);
             continue;
         }

@@ -8,9 +8,10 @@ use std::fs::File;
 use std::io::{self, BufRead, BufReader, Seek, SeekFrom};
 
 use crossterm::{
-    cursor, execute, style,
-    terminal::{self, Clear, ClearType},
+    cursor,
     event::{self, Event, KeyCode, KeyEvent},
+    execute, style,
+    terminal::{self, Clear, ClearType},
 };
 
 // Default search paths for the help file.
@@ -118,11 +119,7 @@ fn display_page(reader: &mut BufReader<File>, stdout: &mut io::Stdout) -> bool {
         }
         // Strip trailing newline for display
         let display = line.trim_end_matches('\n').trim_end_matches('\r');
-        let _ = execute!(
-            stdout,
-            cursor::MoveTo(0, row),
-            Print(display),
-        );
+        let _ = execute!(stdout, cursor::MoveTo(0, row), Print(display),);
         row += 1;
         if row >= rows - 1 {
             // Show "more" prompt and wait for a key
@@ -178,7 +175,8 @@ fn prompt_topic(stdout: &mut io::Stdout) -> TopicAction {
                 KeyCode::Backspace => {
                     if !input.is_empty() {
                         input.pop();
-                        let _ = execute!(stdout, cursor::MoveLeft(1), Print(' '), cursor::MoveLeft(1));
+                        let _ =
+                            execute!(stdout, cursor::MoveLeft(1), Print(' '), cursor::MoveLeft(1));
                     }
                 }
                 KeyCode::Char(c) => {
@@ -241,6 +239,8 @@ fn show_message(msg: &str) {
 
 fn wait_for_key() {
     loop {
-        if let Ok(Event::Key(_)) = event::read() { break; }
+        if let Ok(Event::Key(_)) = event::read() {
+            break;
+        }
     }
 }

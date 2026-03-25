@@ -34,14 +34,20 @@ pub struct SearchResult {
 /// `move_cursor` is TRUE.
 ///
 /// Returns `Some(SearchResult)` on success, `None` if not found.
-pub fn search_forward(buff: &mut Buffer, needle: &str, case_sensitive: bool) -> Option<SearchResult> {
-    if needle.is_empty() { return None; }
+pub fn search_forward(
+    buff: &mut Buffer,
+    needle: &str,
+    case_sensitive: bool,
+) -> Option<SearchResult> {
+    if needle.is_empty() {
+        return None;
+    }
 
     let needle_up: String = needle.to_uppercase();
     let pat: &str = if case_sensitive { needle } else { &needle_up };
 
     let _start_line_num = buff.absolute_lin;
-    let start_pos      = buff.position as usize; // 1-based
+    let start_pos = buff.position as usize; // 1-based
 
     let mut current = buff.curr_line.clone()?;
     let mut line_num = buff.absolute_lin;
@@ -54,7 +60,11 @@ pub fn search_forward(buff: &mut Buffer, needle: &str, case_sensitive: bool) -> 
             let text = &line.line;
             // On the first line we start searching *after* the cursor position.
             let search_from = if first_line { start_pos } else { 0 };
-            let slice = if search_from < text.len() { &text[search_from..] } else { "" };
+            let slice = if search_from < text.len() {
+                &text[search_from..]
+            } else {
+                ""
+            };
 
             let hit = if case_sensitive {
                 slice.find(needle)
@@ -78,21 +88,25 @@ pub fn search_forward(buff: &mut Buffer, needle: &str, case_sensitive: bool) -> 
 
         if let Some(col) = found_col {
             // Update buffer state
-            buff.curr_line    = Some(current.clone());
+            buff.curr_line = Some(current.clone());
             buff.absolute_lin = line_abs_lin;
-            buff.position     = col;
-            buff.scr_horz     = (col - 1).max(0);
-            buff.scr_pos      = buff.scr_horz;
-            buff.abs_pos      = buff.scr_pos;
+            buff.position = col;
+            buff.scr_horz = (col - 1).max(0);
+            buff.scr_pos = buff.scr_horz;
+            buff.abs_pos = buff.scr_pos;
 
             // Recalculate scr_vert / window_top so the match line is visible
             let (_, height) = crate::ui::get_terminal_size();
             let text_height = (height as i32) - 1;
             let half = text_height / 2;
-            buff.scr_vert   = half.min(buff.absolute_lin - 1);
+            buff.scr_vert = half.min(buff.absolute_lin - 1);
             buff.window_top = (buff.absolute_lin - buff.scr_vert).max(1);
 
-            return Some(SearchResult { line_num: line_abs_lin, col, lines_moved });
+            return Some(SearchResult {
+                line_num: line_abs_lin,
+                col,
+                lines_moved,
+            });
         }
 
         // Advance to next line
@@ -116,8 +130,14 @@ pub fn search_forward(buff: &mut Buffer, needle: &str, case_sensitive: bool) -> 
 // ──────────────────────────────────────────────────────────────────────────────
 
 /// Search backward from the current cursor position for `needle`.
-pub fn search_backward(buff: &mut Buffer, needle: &str, case_sensitive: bool) -> Option<SearchResult> {
-    if needle.is_empty() { return None; }
+pub fn search_backward(
+    buff: &mut Buffer,
+    needle: &str,
+    case_sensitive: bool,
+) -> Option<SearchResult> {
+    if needle.is_empty() {
+        return None;
+    }
 
     let needle_up: String = needle.to_uppercase();
     let pat: &str = if case_sensitive { needle } else { &needle_up };
@@ -133,7 +153,11 @@ pub fn search_backward(buff: &mut Buffer, needle: &str, case_sensitive: bool) ->
         let found_col: Option<i32> = {
             let line = current.borrow();
             let text = &line.line;
-            let search_to = if first_line { start_pos.min(text.len()) } else { text.len() };
+            let search_to = if first_line {
+                start_pos.min(text.len())
+            } else {
+                text.len()
+            };
             let slice = &text[..search_to];
 
             let hit = if case_sensitive {
@@ -147,20 +171,24 @@ pub fn search_backward(buff: &mut Buffer, needle: &str, case_sensitive: bool) ->
         };
 
         if let Some(col) = found_col {
-            buff.curr_line    = Some(current.clone());
+            buff.curr_line = Some(current.clone());
             buff.absolute_lin = line_num;
-            buff.position     = col;
-            buff.scr_horz     = (col - 1).max(0);
-            buff.scr_pos      = buff.scr_horz;
-            buff.abs_pos      = buff.scr_pos;
+            buff.position = col;
+            buff.scr_horz = (col - 1).max(0);
+            buff.scr_pos = buff.scr_horz;
+            buff.abs_pos = buff.scr_pos;
 
             let (_, height) = crate::ui::get_terminal_size();
             let text_height = (height as i32) - 1;
             let half = text_height / 2;
-            buff.scr_vert   = half.min(buff.absolute_lin - 1);
+            buff.scr_vert = half.min(buff.absolute_lin - 1);
             buff.window_top = (buff.absolute_lin - buff.scr_vert).max(1);
 
-            return Some(SearchResult { line_num, col, lines_moved });
+            return Some(SearchResult {
+                line_num,
+                col,
+                lines_moved,
+            });
         }
 
         let prev = current.borrow().prev_line.clone();
@@ -184,7 +212,12 @@ pub fn search_backward(buff: &mut Buffer, needle: &str, case_sensitive: bool) ->
 
 /// Replace the next occurrence of `needle` with `replacement`.
 /// Returns `true` if a replacement was made.
-pub fn replace_next(buff: &mut Buffer, needle: &str, replacement: &str, case_sensitive: bool) -> bool {
+pub fn replace_next(
+    buff: &mut Buffer,
+    needle: &str,
+    replacement: &str,
+    case_sensitive: bool,
+) -> bool {
     match search_forward(buff, needle, case_sensitive) {
         None => false,
         Some(_res) => {
@@ -198,7 +231,7 @@ pub fn replace_next(buff: &mut Buffer, needle: &str, replacement: &str, case_sen
                 let mut line = line_rc.borrow_mut();
                 // Locate byte offset
                 let byte_start: usize = line.line.chars().take(pos).map(|c| c.len_utf8()).sum();
-                let byte_end   = byte_start + needle.len();
+                let byte_end = byte_start + needle.len();
                 if byte_end <= line.line.len() {
                     line.line.replace_range(byte_start..byte_end, replacement);
                     line.line_length = line.line.len() as i32 + 1;
@@ -209,9 +242,9 @@ pub fn replace_next(buff: &mut Buffer, needle: &str, replacement: &str, case_sen
             // Advance cursor past the replacement
             let n = replacement.chars().count() as i32;
             buff.position += n;
-            buff.scr_horz  = (buff.position - 1).max(0);
-            buff.scr_pos   = buff.scr_horz;
-            buff.abs_pos   = buff.scr_pos;
+            buff.scr_horz = (buff.position - 1).max(0);
+            buff.scr_pos = buff.scr_horz;
+            buff.abs_pos = buff.scr_pos;
             true
         }
     }
@@ -219,7 +252,12 @@ pub fn replace_next(buff: &mut Buffer, needle: &str, replacement: &str, case_sen
 
 /// Replace **all** occurrences from the current position to EOF.
 /// Returns the number of replacements made.
-pub fn replace_all(buff: &mut Buffer, needle: &str, replacement: &str, case_sensitive: bool) -> usize {
+pub fn replace_all(
+    buff: &mut Buffer,
+    needle: &str,
+    replacement: &str,
+    case_sensitive: bool,
+) -> usize {
     let mut count = 0;
     while replace_next(buff, needle, replacement, case_sensitive) {
         count += 1;

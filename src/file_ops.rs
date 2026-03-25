@@ -5,8 +5,8 @@
 use std::env;
 use std::fs;
 use std::io::{self, Write};
-use std::path::{Path, PathBuf};
 use std::os::unix::fs::MetadataExt;
+use std::path::{Path, PathBuf};
 
 use crate::editor_state::EditorState;
 
@@ -73,7 +73,9 @@ fn expand_tilde(name: &str) -> String {
         if let Some(slash_pos) = name.find('/') {
             let user_name = &name[1..slash_pos];
             // Try passwd lookup (simplified: just check $HOME if it's the current user)
-            let current_user = env::var("USER").or_else(|_| env::var("LOGNAME")).unwrap_or_default();
+            let current_user = env::var("USER")
+                .or_else(|_| env::var("LOGNAME"))
+                .unwrap_or_default();
             if user_name == current_user {
                 if let Ok(home) = env::var("HOME") {
                     return format!("{}{}", home, &name[slash_pos..]);
@@ -88,16 +90,23 @@ fn expand_tilde(name: &str) -> String {
 
 fn expand_env_vars(s: &str) -> String {
     let mut result = String::with_capacity(s.len() * 2);
-    let mut chars  = s.chars().peekable();
+    let mut chars = s.chars().peekable();
 
     while let Some(ch) = chars.next() {
         if ch == '$' {
             let mut var_name = String::new();
             let braced = chars.peek() == Some(&'{');
-            if braced { chars.next(); } // consume '{'
+            if braced {
+                chars.next();
+            } // consume '{'
             while let Some(&c) = chars.peek() {
-                if braced && c == '}' { chars.next(); break; }
-                if !braced && (c == '/' || c == '$' || c == ' ') { break; }
+                if braced && c == '}' {
+                    chars.next();
+                    break;
+                }
+                if !braced && (c == '/' || c == '$' || c == ' ') {
+                    break;
+                }
                 var_name.push(c);
                 chars.next();
             }
@@ -131,16 +140,19 @@ pub fn get_file(file_name: &str) -> io::Result<String> {
 /// Write the current buffer to `file_name`.
 /// Returns `true` on success (mirrors C `write_file()` return value).
 pub fn write_file(state: &mut EditorState, file_name: &str) -> bool {
-    let buff_rc = match state.curr_buff.clone() { Some(b) => b, None => return false };
+    let buff_rc = match state.curr_buff.clone() {
+        Some(b) => b,
+        None => return false,
+    };
 
     let file = match fs::File::create(file_name) {
-        Ok(f)  => f,
+        Ok(f) => f,
         Err(_) => return false,
     };
     let mut writer = io::BufWriter::new(file);
 
     let dos_file = buff_rc.borrow().dos_file;
-    let first    = buff_rc.borrow().first_line.clone();
+    let first = buff_rc.borrow().first_line.clone();
     let mut current = first;
 
     while let Some(line_rc) = current {
@@ -148,22 +160,30 @@ pub fn write_file(state: &mut EditorState, file_name: &str) -> bool {
             let line = line_rc.borrow();
             (line.line.clone(), line.next_line.clone())
         };
-        if writer.write_all(content.as_bytes()).is_err() { return false; }
+        if writer.write_all(content.as_bytes()).is_err() {
+            return false;
+        }
         if dos_file {
-            if writer.write_all(b"\r\n").is_err() { return false; }
+            if writer.write_all(b"\r\n").is_err() {
+                return false;
+            }
         } else {
-            if writer.write_all(b"\n").is_err()   { return false; }
+            if writer.write_all(b"\n").is_err() {
+                return false;
+            }
         }
         current = next;
     }
 
-    if writer.flush().is_err() { return false; }
+    if writer.flush().is_err() {
+        return false;
+    }
 
     // Update cached stat info.
     if let Ok(meta) = fs::metadata(file_name) {
         let mut buff = buff_rc.borrow_mut();
         buff.fileinfo_mtime = meta.mtime() as u64;
-        buff.fileinfo_size  = meta.size();
+        buff.fileinfo_size = meta.size();
         buff.changed = false;
     }
 
@@ -188,7 +208,7 @@ pub fn show_pwd() -> String {
 /// Run `diff` against the on-disk version of the current file and return
 /// the output as a String. Mirrors `diff_file()` in file.c.
 pub fn diff_file(state: &EditorState) -> Option<String> {
-    let buff_rc  = state.curr_buff.as_ref()?;
+    let buff_rc = state.curr_buff.as_ref()?;
     let full_name = buff_rc.borrow().full_name.clone()?;
 
     let output = std::process::Command::new("diff")
@@ -234,12 +254,12 @@ fn read_dir_entries(dir: &Path) -> Vec<BrowserEntry> {
             let path = entry.path();
             let is_dir = path.is_dir();
             let name = entry.file_name().to_string_lossy().to_string();
-            let display = if is_dir {
-                format!("{}/", name)
-            } else {
-                name
+            let display = if is_dir { format!("{}/", name) } else { name };
+            let browser_entry = BrowserEntry {
+                display,
+                is_dir,
+                path,
             };
-            let browser_entry = BrowserEntry { display, is_dir, path };
             if is_dir {
                 dirs.push(browser_entry);
             } else {
@@ -283,8 +303,7 @@ pub fn show_file_browser(start_dir: &str) -> Option<String> {
     // Raw mode is already active (owned by the main event loop).
     let _ = execute!(stdout, terminal::EnterAlternateScreen, cursor::Hide);
 
-    let mut current_dir = fs::canonicalize(start_dir)
-        .unwrap_or_else(|_| PathBuf::from(start_dir));
+    let mut current_dir = fs::canonicalize(start_dir).unwrap_or_else(|_| PathBuf::from(start_dir));
     let mut entries: Vec<BrowserEntry> = read_dir_entries(&current_dir);
     let mut cursor_pos: usize = 0;
     let mut scroll_offset: usize = 0;
@@ -294,13 +313,14 @@ pub fn show_file_browser(start_dir: &str) -> Option<String> {
         let (cols, rows) = terminal::size().unwrap_or((80, 24));
         let list_rows = rows.saturating_sub(3) as usize; // header + border + status
 
-        let _ = execute!(stdout, terminal::Clear(ClearType::All), cursor::MoveTo(0, 0));
+        let _ = execute!(
+            stdout,
+            terminal::Clear(ClearType::All),
+            cursor::MoveTo(0, 0)
+        );
 
         // Header
-        let header = format!(
-            " File Browser  {}",
-            current_dir.to_string_lossy()
-        );
+        let header = format!(" File Browser  {}", current_dir.to_string_lossy());
         let header_trunc: String = header.chars().take(cols as usize).collect();
         let _ = execute!(
             stdout,
@@ -420,4 +440,3 @@ pub fn show_file_browser(start_dir: &str) -> Option<String> {
 
     result
 }
-

@@ -1,16 +1,16 @@
 // UI module using crossterm for terminal control
 
 use crossterm::{
-    terminal::{self, ClearType},
-    execute,
-    style::{self, Color, SetForegroundColor, ResetColor, SetAttribute, Attribute},
     cursor,
     event::{self, Event, KeyEvent},
+    execute,
+    style::{self, Attribute, Color, ResetColor, SetAttribute, SetForegroundColor},
+    terminal::{self, ClearType},
 };
 use std::io::{stdout, Write};
 
-use crate::highlighting::TokenKind;
 use crate::editor_state::TextLine;
+use crate::highlighting::TokenKind;
 
 // ────────────────────────────────────────────────────────────────────────────
 // Terminal size helpers (mirrors C globals COLS / LINES)
@@ -74,7 +74,12 @@ pub fn clear_screen() -> Result<(), Box<dyn std::error::Error>> {
 
 /// Clear a rectangular area on the screen by filling with spaces.
 /// Used for overlays like menus that should only clear their own area.
-pub fn clear_area(start_x: u16, start_y: u16, width: u16, height: u16) -> Result<(), Box<dyn std::error::Error>> {
+pub fn clear_area(
+    start_x: u16,
+    start_y: u16,
+    width: u16,
+    height: u16,
+) -> Result<(), Box<dyn std::error::Error>> {
     let mut stdout = stdout();
     let spaces = " ".repeat(width as usize);
     for y in start_y..start_y + height {
@@ -83,7 +88,6 @@ pub fn clear_area(start_x: u16, start_y: u16, width: u16, height: u16) -> Result
     stdout.flush()?;
     Ok(())
 }
-
 
 // Move cursor
 pub fn move_cursor(x: u16, y: u16) -> Result<(), Box<dyn std::error::Error>> {
@@ -100,10 +104,13 @@ pub fn print_at(x: u16, y: u16, text: &str) -> Result<(), Box<dyn std::error::Er
     Ok(())
 }
 
-
-
 /// Print plain text at position, with a marked range inverted
-pub fn print_at_marked(x: u16, y: u16, text: &str, mark: Option<(usize, usize)>) -> Result<(), Box<dyn std::error::Error>> {
+pub fn print_at_marked(
+    x: u16,
+    y: u16,
+    text: &str,
+    mark: Option<(usize, usize)>,
+) -> Result<(), Box<dyn std::error::Error>> {
     let mut out = stdout();
     execute!(out, cursor::MoveTo(x, y))?;
     if let Some((start, end)) = mark {
@@ -113,7 +120,12 @@ pub fn print_at_marked(x: u16, y: u16, text: &str, mark: Option<(usize, usize)>)
             execute!(out, style::Print(&text[..s]))?;
         }
         if e > s {
-            execute!(out, SetAttribute(Attribute::Reverse), style::Print(&text[s..e]), SetAttribute(Attribute::Reset))?;
+            execute!(
+                out,
+                SetAttribute(Attribute::Reverse),
+                style::Print(&text[s..e]),
+                SetAttribute(Attribute::Reset)
+            )?;
         }
         if e < text.len() {
             execute!(out, style::Print(&text[e..]))?;
@@ -129,27 +141,33 @@ pub fn print_highlighted_marked(
     x: u16,
     y: u16,
     spans: &[(&str, TokenKind)],
-    mark: Option<(usize, usize)>
+    mark: Option<(usize, usize)>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut out = stdout();
     execute!(out, cursor::MoveTo(x, y))?;
     let mut current_offset = 0;
-    
+
     // We iterate over the spans, but if they intersect the mark, we toggle Attribute::Reverse.
     for &(text, ref kind) in spans {
         let color = token_color(kind);
         let span_len = text.len();
-        
+
         if let Some((start, end)) = mark {
             let s = start.saturating_sub(current_offset).min(span_len);
             let e = end.saturating_sub(current_offset).min(span_len);
-            
+
             execute!(out, SetForegroundColor(color))?;
             if s > 0 {
                 execute!(out, style::Print(&text[..s]))?;
             }
             if e > s {
-                execute!(out, SetAttribute(Attribute::Reverse), style::Print(&text[s..e]), SetAttribute(Attribute::Reset), SetForegroundColor(color))?;
+                execute!(
+                    out,
+                    SetAttribute(Attribute::Reverse),
+                    style::Print(&text[s..e]),
+                    SetAttribute(Attribute::Reset),
+                    SetForegroundColor(color)
+                )?;
             }
             if e < span_len {
                 execute!(out, style::Print(&text[e..]))?;
@@ -169,12 +187,10 @@ pub fn print_highlighted_owned_marked(
     x: u16,
     y: u16,
     spans: &[(String, TokenKind)],
-    mark: Option<(usize, usize)>
+    mark: Option<(usize, usize)>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let borrowed: Vec<(&str, TokenKind)> = spans
-        .iter()
-        .map(|(s, k)| (s.as_str(), k.clone()))
-        .collect();
+    let borrowed: Vec<(&str, TokenKind)> =
+        spans.iter().map(|(s, k)| (s.as_str(), k.clone())).collect();
     print_highlighted_marked(x, y, &borrowed, mark)
 }
 
@@ -183,12 +199,7 @@ pub fn print_status_bar(y: u16, text: &str, width: u16) -> Result<(), Box<dyn st
     let mut out = stdout();
     // Pad to full width
     let padded = format!("{:<width$}", text, width = width as usize);
-    execute!(
-        out,
-        cursor::MoveTo(0, y),
-        style::Print(padded),
-        ResetColor
-    )?;
+    execute!(out, cursor::MoveTo(0, y), style::Print(padded), ResetColor)?;
     out.flush()?;
     Ok(())
 }
@@ -212,13 +223,13 @@ pub fn print_highlighted_at(x: u16, y: u16, text: &str) -> Result<(), Box<dyn st
 
 fn token_color(kind: &TokenKind) -> Color {
     match kind {
-        TokenKind::Keyword       => Color::Yellow,
-        TokenKind::Comment       => Color::DarkGrey,
+        TokenKind::Keyword => Color::Yellow,
+        TokenKind::Comment => Color::DarkGrey,
         TokenKind::StringLiteral => Color::Green,
-        TokenKind::Number        => Color::Cyan,
-        TokenKind::Operator      => Color::Magenta,
-        TokenKind::Identifier    => Color::White,
-        TokenKind::Whitespace    => Color::Reset,
+        TokenKind::Number => Color::Cyan,
+        TokenKind::Operator => Color::Magenta,
+        TokenKind::Identifier => Color::White,
+        TokenKind::Whitespace => Color::Reset,
     }
 }
 
@@ -230,4 +241,3 @@ pub fn read_key() -> Result<KeyEvent, Box<dyn std::error::Error>> {
         }
     }
 }
-

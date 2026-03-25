@@ -4,4 +4,6 @@ package/
 xae
 test.txt
 target/
-.cache/
+.cache/target/
+AGENTS.md
+aee/

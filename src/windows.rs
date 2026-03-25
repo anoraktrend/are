@@ -10,10 +10,11 @@
 #![allow(dead_code)]
 
 use crossterm::{
-    cursor, execute, queue,
-    terminal::{self, Clear, ClearType},
-    style::{Print, SetAttribute, Attribute},
+    cursor,
     cursor::SetCursorStyle,
+    execute, queue,
+    style::{Attribute, Print, SetAttribute},
+    terminal::{self, Clear, ClearType},
 };
 use std::io::{self, Write};
 
@@ -118,8 +119,7 @@ fn paint_buffer_region(
     let mut line_rc_opt = buff.first_line.clone();
     // Advance to the scroll offset (window_top line)
     for _ in 0..buff.window_top {
-        line_rc_opt = line_rc_opt
-            .and_then(|l| l.borrow().next_line.clone());
+        line_rc_opt = line_rc_opt.and_then(|l| l.borrow().next_line.clone());
     }
 
     for row in 0..layout.lines {
@@ -137,12 +137,7 @@ fn paint_buffer_region(
     paint_footer(buff, layout, focused, stdout);
 }
 
-fn paint_footer(
-    buff: &Buffer,
-    layout: &WindowLayout,
-    focused: bool,
-    stdout: &mut io::Stdout,
-) {
+fn paint_footer(buff: &Buffer, layout: &WindowLayout, focused: bool, stdout: &mut io::Stdout) {
     let footer_row = layout.top + layout.lines;
     let _ = execute!(
         stdout,
@@ -151,7 +146,7 @@ fn paint_footer(
     );
 
     let change_char = if buff.changed { '*' } else { ' ' };
-    let focus_char  = if focused { '*' } else { ' ' };
+    let focus_char = if focused { '*' } else { ' ' };
     let name = buff.file_name.as_deref().unwrap_or(buff.name.as_str());
 
     let status = format!("{}{} {} ", change_char, focus_char, name);
@@ -169,8 +164,8 @@ fn paint_footer(
 /// Allocate a fresh `Buffer` for editing `ident` (buffer name/identifier).
 /// Returns the newly-created buffer.
 pub fn add_buf(ident: &str) -> Buffer {
-    use crate::text::txtalloc;
     use crate::editor_state::Buffer;
+    use crate::text::txtalloc;
 
     let first_line = txtalloc();
     {
@@ -224,9 +219,9 @@ pub fn resize_check(buff: &mut Buffer, last_cols: u16, last_rows: u16) -> bool {
     if cols == last_cols && rows == last_rows {
         return false;
     }
-    buff.lines    = rows as i32 - 1;
+    buff.lines = rows as i32 - 1;
     buff.last_line = buff.lines - 1;
-    buff.last_col  = cols as i32 - 1;
+    buff.last_col = cols as i32 - 1;
     true
 }
 
@@ -249,11 +244,7 @@ pub fn set_up_term() -> io::Result<()> {
 
 /// Restore the terminal to its previous state.
 pub fn restore_term() -> io::Result<()> {
-    execute!(
-        io::stdout(),
-        cursor::Show,
-        terminal::LeaveAlternateScreen,
-    )?;
+    execute!(io::stdout(), cursor::Show, terminal::LeaveAlternateScreen,)?;
     terminal::disable_raw_mode()?;
     Ok(())
 }
@@ -269,10 +260,17 @@ pub fn paint_info_win(buff: &Buffer, height: u16) {
     let mut stdout = io::stdout();
 
     let name = buff.file_name.as_deref().unwrap_or(buff.name.as_str());
-    let change = if buff.changed { "modified" } else { "         " };
+    let change = if buff.changed {
+        "modified"
+    } else {
+        "         "
+    };
     let info = format!(
         " aee  {}  {}  ln {}  col {}",
-        name, change, buff.absolute_lin, buff.scr_horz + 1
+        name,
+        change,
+        buff.absolute_lin,
+        buff.scr_horz + 1
     );
     let padded: String = format!("{:<width$}", info, width = cols as usize)
         .chars()
