@@ -10,16 +10,16 @@ depends=()
 makedepends=('cargo')
 provides=('are')
 conflicts=('are')
-source=("${pkgname}-${pkgver}.tar.gz::https://github.com/anoraktrend/are/archive/refs/tags/${pkgver}.tar.gz")
+source=("are::git+file://${PWD}")
 sha256sums=('SKIP')
 
 build() {
-    cd "${pkgname}-${pkgver}"
+    cd "are"
     cargo build --release
 }
 
 package() {
-    cd "${pkgname}-${pkgver}"
+    cd "are"
     # Install the binary
     install -Dm755 "target/release/are" "$pkgdir/usr/bin/are"
 
