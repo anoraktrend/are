@@ -7,10 +7,8 @@ license = "Artistic-2.0"
 authors = ["Converted from C to Rust"]
 
 [dependencies]
-cursive = "0.21"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-regex = "1.10"
 lazy_static = "1.4"
-tokio = { version = "1.0", features = ["full"] }
+tokio = { version = "1.1", features = ["rt-multi-thread", "macros", "process", "io-util", "sync", "time"] }
 crossterm = "0.27"

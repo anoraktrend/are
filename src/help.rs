@@ -4,8 +4,7 @@
 //! and displays it in the terminal, allowing the user to navigate topics.
 //! Uses crossterm instead of ncurses.
 
-use std::fs::File;
-use std::io::{self, BufRead, BufReader, Seek, SeekFrom};
+use std::io::{self, BufRead, BufReader, Cursor, Seek, SeekFrom};
 
 use crossterm::{
     cursor,
@@ -14,28 +13,16 @@ use crossterm::{
     terminal::{self, Clear, ClearType},
 };
 
-// Default search paths for the help file.
-pub const HELP_FILE_PATHS: &[&str] = &[
-    "/usr/share/aee/help.ae",
-    "/usr/local/share/aee/help.ae",
-    "/usr/share/doc/aee/help.ae",
-];
+// Embed the help file directly into the binary for a self-contained executable.
+const HELP_CONTENT: &str = include_str!("help.ae");
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Public entry point
 // ──────────────────────────────────────────────────────────────────────────────
 
-/// Display the help system.  `help_file` is the configured path (may be
-/// empty/None); if it cannot be opened the fallback paths are tried.
-pub fn help(help_file: Option<&str>) {
-    let file = open_help_file(help_file);
-    let mut reader = match file {
-        Some(f) => BufReader::new(f),
-        None => {
-            show_message("Help file not found.");
-            return;
-        }
-    };
+/// Display the help system.
+pub fn help(_help_file: Option<&str>) {
+    let mut reader = BufReader::new(Cursor::new(HELP_CONTENT));
 
     let mut stdout = io::stdout();
     let _ = terminal::enable_raw_mode();
@@ -69,34 +56,12 @@ pub fn help(help_file: Option<&str>) {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// File opening
-// ──────────────────────────────────────────────────────────────────────────────
-
-fn open_help_file(configured: Option<&str>) -> Option<File> {
-    // Try configured path first
-    if let Some(path) = configured {
-        if !path.is_empty() {
-            if let Ok(f) = File::open(path) {
-                return Some(f);
-            }
-        }
-    }
-    // Try fallback paths
-    for path in HELP_FILE_PATHS {
-        if let Ok(f) = File::open(path) {
-            return Some(f);
-        }
-    }
-    None
-}
-
-// ──────────────────────────────────────────────────────────────────────────────
 // Display one page (until form-feed or EOF)
 // ──────────────────────────────────────────────────────────────────────────────
 
 /// Output lines from `reader` until a form-feed (0x0C) line or EOF.
 /// Returns `true` if a form-feed was encountered (more pages available).
-fn display_page(reader: &mut BufReader<File>, stdout: &mut io::Stdout) -> bool {
+fn display_page<R: BufRead + Seek>(reader: &mut R, stdout: &mut io::Stdout) -> bool {
     use crossterm::style::Print;
 
     let (_cols, rows) = terminal::size().unwrap_or((80, 24));
@@ -195,7 +160,7 @@ fn prompt_topic(stdout: &mut io::Stdout) -> TopicAction {
 
 /// Seek `reader` to the line *after* the first line that starts with `topic`.
 /// Returns `true` on success.
-fn seek_to_topic(reader: &mut BufReader<File>, topic: &str) -> bool {
+fn seek_to_topic<R: BufRead + Seek>(reader: &mut R, topic: &str) -> bool {
     let _ = reader.seek(SeekFrom::Start(0));
     loop {
         let mut line = String::new();
@@ -230,11 +195,6 @@ fn show_topic_error(stdout: &mut io::Stdout, topic: &str) {
         style::SetAttribute(style::Attribute::Reset),
     );
     wait_for_key();
-}
-
-fn show_message(msg: &str) {
-    use crossterm::style::Print;
-    let _ = execute!(io::stdout(), Print(msg), Print("\r\n"));
 }
 
 fn wait_for_key() {

@@ -1,37 +1,30 @@
 # Maintainer: Lucy Randall <lucybrown@vivaldi.net>
 pkgname=are
-pkgver=2.2.22.r25.c77b92a
+pkgver=1.0.0
 pkgrel=1
 pkgdesc="Another Rust Editor - A port of the aee terminal-based text editor to Rust"
 arch=('x86_64' 'i686' 'aarch64')
-url="https://helltop.net/projects"
-license=('custom:Artistic')
-depends=('ncurses')
-makedepends=('git' 'cargo')
+url="https://github.com/lucy/are"
+license=('Artistic-2.0')
+depends=()
+makedepends=('cargo')
 provides=('are')
 conflicts=('are')
-source=("git+https://github.com/anoraktrend/are.git")
+source=("are-${pkgver}.tar.gz")
 sha256sums=('SKIP')
 
-pkgver() {
-    cd "$srcdir/aee"
-    printf "2.2.22.r%s.%s" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
-}
-
 build() {
-    cd "$srcdir/aee"
-    cargo build --release
+    cargo build --release --locked
 }
 
 package() {
-    cd "$srcdir/aee"
-
     # Install the binary
-    install -Dm755 "target/release/aee" "$pkgdir/usr/bin/aee"
+    install -Dm755 "target/release/are" "$pkgdir/usr/bin/are"
 
     # Install license
-    install -Dm644 "LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+    install -Dm644 "LICENSE.MD" "$pkgdir/usr/share/licenses/$pkgname/LICENSE.MD"
 
     # Install documentation
     install -Dm644 "README.md" "$pkgdir/usr/share/doc/$pkgname/README.md"
+    install -Dm644 "Changes" "$pkgdir/usr/share/doc/$pkgname/Changes"
 }

@@ -1,14 +1,26 @@
-ARE 1.0.0!
-- Initial release of the ARE (Another Rust Editor).
-- Features include:
-  - Syntax highlighting for multiple programming languages.
-  - Code completion and suggestions.
-  - Integrated terminal for running commands.
-  - Customizable themes and layouts.
-  - Support for plugins and extensions.
-- Known issues:
-  - Some features may be unstable or not fully implemented.
-- Future plans:
-  - Implementing a built-in debugger.
-  - Adding support for more programming languages.
-- Contributions are welcome! Please submit pull requests or report issues on the GitHub repository.
+ARE (Another Rust Editor) 1.0.0
+
+A modern, memory-safe port of the classic Another Easy Editor (AEE).
+
+Philosophy-Driven Features:
+- "No Instructions Needed": Redesigned interface with accurate key reminders.
+- "Easy to Compile": Self-contained binary with embedded help system.
+- "Modern Yet Classic": Familiar shortcuts (Ctrl-C/V/S/Z/F/Q) combined with AEE's power.
+
+Key Features:
+- Syntax highlighting for C, Rust, Python, and Shell scripts.
+- Integrated menu system (Esc) for all editor functions.
+- Multi-buffer support and built-in file browser (Ctrl-O).
+- Journaling system for session recovery after crashes.
+- Support for LSP (Language Server Protocol) for advanced code analysis.
+- Shell command execution (Ctrl-E or via menu).
+- Minimalist design with only the essential files for installation.
+
+Installation:
+- Build once with `cargo build --release` and you are ready to go.
+- No external help files or assets required.
+
+Future:
+- Enhanced LSP integration for better auto-completion.
+- Multi-window split screen.
+- Configurable themes and terminal styles.

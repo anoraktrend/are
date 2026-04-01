@@ -770,13 +770,12 @@ async fn main() {
 
 /// Display the key binding bar at the top of the screen (matching the C version)
 fn draw_key_bindings(y: u16, width: u16) -> Result<u16, Box<dyn std::error::Error>> {
-    // Key bindings exactly like the C AEE version
+    // Updated key bindings to match the actual Rust implementation
     let bindings = [
-        "Esc  menu       ^S   save file  ^U   mark       ^D   beg of lin ^W   del word   F2   und char   F6   mark       ",
-        "^T   top of txt ^Q   quit       ^X   cut        ^O   end of lin ^K   del char   F3   del word   F7   cut        ",
-        "^B   end of txt ^E   command    ^C   copy       ^A   adv char   ^L   del line   F4   adv word   F8   adv line   ",
-        "^P   prev page  ^F   search     ^V   paste      ^Y   adv word   F1   GOLD       F5   search                    ",
-        "^N   next page  ^G   goto line  ^Z   undo       ^R   redraw     Ins  overstrk                                  ",
+        "Esc  menu       ^S   save file  ^O   open file  ^N   new file   ^W   close file F2   und char   F6   mark       ",
+        "^A   select all ^Q   quit       ^X   cut        ^C   copy       ^V   paste      F3   del word   F7   cut        ",
+        "^Z   undo       ^E   command    ^F   search     ^R   replace    ^G   goto line  F4   adv word   F8   adv line   ",
+        "^P   print      Ins  overstrk                                              F1   GOLD       F5   search     ",
     ];
 
     let mut current_y = y;
