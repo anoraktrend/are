@@ -1,3 +1,15 @@
+ARE (Another Rust Editor) 1.2.2
+- Upgraded to Arborium for Tree-sitter syntax highlighting.
+- Zero-config: Support for 96 languages with zero external dependencies.
+- Pure Rust build: No C compiler required for grammar compilation.
+- Improved terminal color handling with AnsiHighlighter.
+
+ARE (Another Rust Editor) 1.2.1
+- Integrated Tree-sitter for high-quality, context-aware syntax highlighting.
+- Embedded grammars for Rust, C, and Python directly into the binary.
+- Improved color scheme for functions and types.
+- Automatic fallback to regex-based highlighting for unsupported languages.
+
 ARE (Another Rust Editor) 1.2.0
 
 A modern, memory-safe port of the classic Another Easy Editor (AEE).

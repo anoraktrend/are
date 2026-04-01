@@ -906,6 +906,27 @@ fn draw_screen(
             };
 
             if !editor.nohighlight {
+                // 1. Try Tree-sitter (local, fast, context-aware)
+                if let Some(ts) = &editor.ts_highlighter {
+                    let spans = ts.highlight_line(display_text);
+                    ui::print_highlighted_owned_marked(0, y, &spans, mark_range)?;
+                    y += 1u16;
+                    // Still update in_block_comment state for regex fallback consistency
+                    if lang != "text" {
+                        let (_, new_state) = highlighting::highlight_line_with_state(
+                            display_text,
+                            lang,
+                            in_block_comment,
+                        );
+                        in_block_comment = new_state;
+                    }
+                    if y >= height {
+                        break;
+                    }
+                    continue;
+                }
+
+                // 2. Try LSP semantic tokens (most accurate, needs server)
                 if let Some((all_tokens, legend)) = lsp_tokens_for_file {
                     // Filter semantic tokens that belong to this display line (0-based idx)
                     let lsp_line_idx = idx as u32;
@@ -935,7 +956,11 @@ fn draw_screen(
                         in_block_comment,
                     );
                     in_block_comment = new_state;
-                    ui::print_highlighted_marked(0, y, &spans, mark_range)?;
+                    let owned_spans: Vec<(String, highlighting::TokenKind)> = spans
+                        .into_iter()
+                        .map(|(s, k)| (s.to_string(), k))
+                        .collect();
+                    ui::print_highlighted_marked(0, y, &owned_spans, mark_range)?;
                 } else {
                     ui::print_at_marked(0, y, display_text, mark_range)?;
                 }

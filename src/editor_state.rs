@@ -329,6 +329,9 @@ pub struct EditorState {
     // ── LSP client ────────────────────────────────────────────────────────────
     pub lsp_client: Option<crate::lsp::LspClient>,
 
+    // ── Tree-sitter highlighter ───────────────────────────────────────────────
+    pub ts_highlighter: Option<crate::highlighting::TsHighlighter>,
+
     // ── Simple undo (the C code has a 128-slot circular buffer) ───────────────
     pub last_action: Option<LastAction>,
 }
@@ -412,6 +415,7 @@ impl EditorState {
             commands: Vec::new(),
             init_strings: Vec::new(),
             lsp_client: None,
+            ts_highlighter: None,
             last_action: None,
         }
     }
@@ -551,6 +555,9 @@ impl EditorState {
 
     /// Load a file into the main buffer (mirrors `check_fp` + `get_file` in file.c).
     pub fn load_file(&mut self, file_name: &str) {
+        let lang = crate::highlighting::lang_from_extension(file_name);
+        self.ts_highlighter = crate::highlighting::TsHighlighter::new(lang);
+
         // Record the target path on the buffer.
         if let Some(ref buff_rc) = self.first_buff {
             let mut buff = buff_rc.borrow_mut();

@@ -109,7 +109,7 @@ pub fn print_at_marked(
     x: u16,
     y: u16,
     text: &str,
-    mark: Option<(usize, usize)>,
+    mark: Option<(usize, usize)>, 
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut out = stdout();
     execute!(out, cursor::MoveTo(x, y))?;
@@ -137,45 +137,76 @@ pub fn print_at_marked(
 }
 
 /// Print marked syntax-highlighted line at (x, y)
-pub fn print_highlighted_marked(
+pub fn print_highlighted_marked<S: AsRef<str>>(
     x: u16,
     y: u16,
-    spans: &[(&str, TokenKind)],
-    mark: Option<(usize, usize)>,
+    spans: &[(S, TokenKind)],
+    mark: Option<(usize, usize)>, 
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut out = stdout();
     execute!(out, cursor::MoveTo(x, y))?;
     let mut current_offset = 0;
 
-    // We iterate over the spans, but if they intersect the mark, we toggle Attribute::Reverse.
-    for &(text, ref kind) in spans {
-        let color = token_color(kind);
-        let span_len = text.len();
+    for (text_ref, kind) in spans {
+        let text = text_ref.as_ref();
+        match kind {
+            TokenKind::Ansi(raw_content) => {
+                // If there's a mark, we print plain text with inversion.
+                // If no mark, we print the ANSI string directly.
+                if let Some((start, end)) = mark {
+                    let span_len = raw_content.len();
+                    let s = start.saturating_sub(current_offset).min(span_len);
+                    let e = end.saturating_sub(current_offset).min(span_len);
+                    
+                    if s > 0 {
+                        execute!(out, style::Print(&raw_content[..s]))?;
+                    }
+                    if e > s {
+                        execute!(
+                            out,
+                            SetAttribute(Attribute::Reverse),
+                            style::Print(&raw_content[s..e]),
+                            SetAttribute(Attribute::Reset)
+                        )?;
+                    }
+                    if e < span_len {
+                        execute!(out, style::Print(&raw_content[e..]))?;
+                    }
+                } else {
+                    execute!(out, style::Print(text))?;
+                }
+                current_offset += raw_content.len();
+            }
+            _ => {
+                let color = token_color(kind);
+                let span_len = text.len();
 
-        if let Some((start, end)) = mark {
-            let s = start.saturating_sub(current_offset).min(span_len);
-            let e = end.saturating_sub(current_offset).min(span_len);
+                if let Some((start, end)) = mark {
+                    let s = start.saturating_sub(current_offset).min(span_len);
+                    let e = end.saturating_sub(current_offset).min(span_len);
 
-            execute!(out, SetForegroundColor(color))?;
-            if s > 0 {
-                execute!(out, style::Print(&text[..s]))?;
+                    execute!(out, SetForegroundColor(color))?;
+                    if s > 0 {
+                        execute!(out, style::Print(&text[..s]))?;
+                    }
+                    if e > s {
+                        execute!(
+                            out,
+                            SetAttribute(Attribute::Reverse),
+                            style::Print(&text[s..e]),
+                            SetAttribute(Attribute::Reset),
+                            SetForegroundColor(color)
+                        )?;
+                    }
+                    if e < span_len {
+                        execute!(out, style::Print(&text[e..]))?;
+                    }
+                } else {
+                    execute!(out, SetForegroundColor(color), style::Print(text))?;
+                }
+                current_offset += span_len;
             }
-            if e > s {
-                execute!(
-                    out,
-                    SetAttribute(Attribute::Reverse),
-                    style::Print(&text[s..e]),
-                    SetAttribute(Attribute::Reset),
-                    SetForegroundColor(color)
-                )?;
-            }
-            if e < span_len {
-                execute!(out, style::Print(&text[e..]))?;
-            }
-        } else {
-            execute!(out, SetForegroundColor(color), style::Print(text))?;
         }
-        current_offset += span_len;
     }
     execute!(out, ResetColor)?;
     out.flush()?;
@@ -187,18 +218,16 @@ pub fn print_highlighted_owned_marked(
     x: u16,
     y: u16,
     spans: &[(String, TokenKind)],
-    mark: Option<(usize, usize)>,
+    mark: Option<(usize, usize)>, 
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let borrowed: Vec<(&str, TokenKind)> =
-        spans.iter().map(|(s, k)| (s.as_str(), k.clone())).collect();
-    print_highlighted_marked(x, y, &borrowed, mark)
+    print_highlighted_marked(x, y, spans, mark)
 }
 
 /// Print the status / info bar - plain text without highlight.
 pub fn print_status_bar(y: u16, text: &str, width: u16) -> Result<(), Box<dyn std::error::Error>> {
     let mut out = stdout();
     // Pad to full width
-    let padded = format!("{:<width$}", text, width = width as usize);
+    let padded = format!( "{:<width$}", text, width = width as usize);
     execute!(out, cursor::MoveTo(0, y), style::Print(padded), ResetColor)?;
     out.flush()?;
     Ok(())
@@ -228,8 +257,11 @@ fn token_color(kind: &TokenKind) -> Color {
         TokenKind::StringLiteral => Color::Green,
         TokenKind::Number => Color::Cyan,
         TokenKind::Operator => Color::Magenta,
+        TokenKind::Function => Color::Blue,
+        TokenKind::Type => Color::Yellow,
         TokenKind::Identifier => Color::White,
         TokenKind::Whitespace => Color::Reset,
+        TokenKind::Ansi(_) => Color::White,
     }
 }
 
