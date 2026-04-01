@@ -7,3 +7,5 @@ target/
 .cache/target/
 AGENTS.md
 aee/
+pkg/
+src/are-*/
