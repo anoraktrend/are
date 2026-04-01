@@ -2,7 +2,7 @@
 
 use lazy_static::lazy_static;
 use std::collections::HashSet;
-use arborium::{AnsiHighlighter, detect_language};
+use arborium::{AnsiHighlighter, detect_language, get_language};
 use arborium::theme::builtin;
 
 lazy_static! {
@@ -76,23 +76,21 @@ impl TsHighlighter {
         let theme = builtin::catppuccin_mocha().clone();
         let hl = AnsiHighlighter::new(theme);
         
-        // Arborium might return Error if language is not enabled or supported.
-        // We'll just store the ID and try to highlight.
-        Some(TsHighlighter { 
-            lang_id: lang_name.to_string(),
-            hl
-        })
+        if get_language(lang_name).is_some() {
+            Some(TsHighlighter { 
+                lang_id: lang_name.to_string(),
+                hl
+            })
+        } else {
+            None
+        }
     }
 
     pub fn highlight_line(&self, text: &str) -> Vec<(String, TokenKind)> {
         let mut hl_mut = self.hl.fork();
         match hl_mut.highlight(&self.lang_id, text) {
             Ok(ansi_string) => {
-                // For now, we treat the whole line as one Ansi token.
-                // In a more advanced implementation, we'd parse the ANSI to spans.
-                vec![(ansi_string, TokenKind::Ansi(text.to_string()))] 
-                // Wait, if I put the ANSI string in the first part, 
-                // the UI module needs to know NOT to re-color it.
+                vec![(ansi_string, TokenKind::Ansi(text.to_string()))]
             }
             Err(_) => vec![(text.to_string(), TokenKind::Identifier)],
         }
