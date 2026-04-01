@@ -1,25 +1,25 @@
 # Maintainer: Lucy Randall <lucybrown@vivaldi.net>
 pkgname=are
-pkgver=1.0.0
+pkgver=1.2.0
 pkgrel=1
 pkgdesc="Another Rust Editor - A port of the aee terminal-based text editor to Rust"
 arch=('x86_64' 'i686' 'aarch64')
-url="https://github.com/lucy/are"
+url="https://github.com/anoraktrend/are"
 license=('Artistic-2.0')
 depends=()
 makedepends=('cargo')
 provides=('are')
 conflicts=('are')
-source=("${pkgname}::git+https://github.com/anoraktrend/are.git#tag=v${pkgver}")
+source=("${pkgname}-${pkgver}.tar.gz::https://github.com/anoraktrend/are/archive/refs/tags/${pkgver}.tar.gz")
 sha256sums=('SKIP')
 
 build() {
-    cd "$pkgname"
+    cd "${pkgname}-${pkgver}"
     cargo build --release --locked
 }
 
 package() {
-    cd "$pkgname"
+    cd "${pkgname}-${pkgver}"
     # Install the binary
     install -Dm755 "target/release/are" "$pkgdir/usr/bin/are"
 

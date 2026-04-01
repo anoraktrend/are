@@ -1,6 +1,6 @@
 [package]
 name = "are"
-version = "1.0.0"
+version = "1.2.0"
 edition = "2021"
 description = "Another Rust Editor - A port of the aee terminal-based text editor to Rust"
 license = "Artistic-2.0"
