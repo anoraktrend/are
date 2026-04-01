@@ -123,6 +123,7 @@ fn collect_partial_line(line: &TextLine, start: usize, end: usize) -> TextLine {
     n.line = text;
     n.line_length = n.line.len() as i32 + 1;
     n.max_length = n.line_length + 10;
+    n.highlight_spans = Vec::new();
     n
 }
 

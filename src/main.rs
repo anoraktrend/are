@@ -102,6 +102,16 @@ async fn main() {
             lsp.poll_messages();
         }
 
+        // Re-highlight if changed
+        if !editor.nohighlight {
+            if let Some(buff_rc) = &editor.curr_buff {
+                let mut buff = buff_rc.borrow_mut();
+                if buff.changed {
+                    buff.full_highlight(&mut editor.ts_highlighter);
+                }
+            }
+        }
+
         // Render screen
         if let Err(e) = draw_screen(&editor, &mark_anchor) {
             eprintln!("Failed to draw screen: {}", e);
@@ -906,20 +916,10 @@ fn draw_screen(
             };
 
             if !editor.nohighlight {
-                // 1. Try Tree-sitter (local, fast, context-aware)
-                if let Some(ts) = &editor.ts_highlighter {
-                    let spans = ts.highlight_line(display_text);
-                    ui::print_highlighted_owned_marked(0, y, &spans, mark_range)?;
+                // 1. Try Tree-sitter cached spans
+                if !line.highlight_spans.is_empty() {
+                    ui::print_highlighted_marked(0, y, &line.highlight_spans, mark_range)?;
                     y += 1u16;
-                    // Still update in_block_comment state for regex fallback consistency
-                    if lang != "text" {
-                        let (_, new_state) = highlighting::highlight_line_with_state(
-                            display_text,
-                            lang,
-                            in_block_comment,
-                        );
-                        in_block_comment = new_state;
-                    }
                     if y >= height {
                         break;
                     }

@@ -46,7 +46,7 @@ pub enum TokenKind {
     Whitespace,
     Function,
     Type,
-    /// Pre-colored ANSI string (from Tree-sitter/Arborium)
+    /// Pre-colored ANSI string
     Ansi(String),
 }
 
@@ -68,28 +68,26 @@ pub fn lang_from_extension(path: &str) -> &'static str {
 
 pub struct TsHighlighter {
     pub lang_id: String,
-    pub hl: AnsiHighlighter,
+    pub highlighter: AnsiHighlighter,
 }
 
 impl TsHighlighter {
     pub fn new(lang_name: &str) -> Option<Self> {
-        let theme = builtin::catppuccin_mocha().clone();
-        let hl = AnsiHighlighter::new(theme);
-        
         if get_language(lang_name).is_some() {
+            let theme = builtin::catppuccin_mocha().clone();
             Some(TsHighlighter { 
                 lang_id: lang_name.to_string(),
-                hl
+                highlighter: AnsiHighlighter::new(theme)
             })
         } else {
             None
         }
     }
 
-    pub fn highlight_line(&self, text: &str) -> Vec<(String, TokenKind)> {
-        let mut hl_mut = self.hl.fork();
-        match hl_mut.highlight(&self.lang_id, text) {
+    pub fn highlight_line(&mut self, text: &str) -> Vec<(String, TokenKind)> {
+        match self.highlighter.highlight(&self.lang_id, text) {
             Ok(ansi_string) => {
+                // We store the original text in TokenKind::Ansi for selection logic
                 vec![(ansi_string, TokenKind::Ansi(text.to_string()))]
             }
             Err(_) => vec![(text.to_string(), TokenKind::Identifier)],

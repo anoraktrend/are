@@ -60,6 +60,8 @@ pub struct TextLine {
     pub changed: bool,
     /// Number of characters including the null terminator slot.
     pub line_length: i32,
+    /// Cached highlight spans for this line.
+    pub highlight_spans: Vec<(String, crate::highlighting::TokenKind)>,
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -131,6 +133,17 @@ pub struct Buffer {
     // ── File stat cache (mirrors struct stat fields we care about) ───────────
     pub fileinfo_mtime: u64,
     pub fileinfo_size: u64,
+}
+
+impl Buffer {
+    /// Perform document highlighting using Tree-sitter.
+    pub fn full_highlight(&mut self, ts: &mut Option<crate::highlighting::TsHighlighter>) {
+        let Some(ts) = ts else { return };
+        
+        for line in &mut self.lines {
+            line.highlight_spans = ts.highlight_line(&line.line);
+        }
+    }
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -612,6 +625,8 @@ impl EditorState {
                     .unwrap_or(0);
                 buff.fileinfo_size = meta.len();
             }
+            
+            buff.full_highlight(&mut self.ts_highlighter);
         }
     }
 }

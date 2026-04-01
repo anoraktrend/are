@@ -15,5 +15,6 @@ pub fn create_empty_line() -> TextLine {
         file_info: AeFileInfo::default(),
         changed: false,
         line_length: 1, // empty line: 0 chars + 1 null slot = 1
+        highlight_spans: Vec::new(),
     }
 }
