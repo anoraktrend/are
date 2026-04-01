@@ -15,6 +15,8 @@ sha256sums=('SKIP')
 
 build() {
     cd "are"
+    # Ensure Tree-sitter symbols are not stripped by aggressive LDFLAGS
+    export LDFLAGS="-Wl,--no-as-needed ${LDFLAGS} -Wl,--as-needed"
     cargo build --release
 }
 
